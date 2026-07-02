@@ -9,7 +9,7 @@ const db = {
       id: 'user-1',
       name: 'Admin Sasacation',
       email: 'admin@sasacation.com',
-      password: '$2a$10$xZdQ3KfSnbdYMqELFVe0veEMtc2bCHKr.T8l7c8VD1RpCXFDwpGki', // admin123
+      password: '$2a$10$jcmSboxQkPdpL9R.vfEQV.37pmNMfmd7OhjImf7Itl60f4H79CgW2', // admin123
       role: 'admin',
       avatar: null,
       provider: 'email',
@@ -19,7 +19,7 @@ const db = {
       id: 'user-2',
       name: 'Budi Santoso',
       email: 'budi@example.com',
-      password: '$2a$10$xZdQ3KfSnbdYMqELFVe0veEMtc2bCHKr.T8l7c8VD1RpCXFDwpGki', // admin123
+      password: '$2a$10$jcmSboxQkPdpL9R.vfEQV.37pmNMfmd7OhjImf7Itl60f4H79CgW2', // admin123
       role: 'user',
       avatar: null,
       provider: 'email',
