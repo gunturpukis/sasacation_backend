@@ -1,6 +1,6 @@
 const { chatWithAssistant, smartSearch, generateDescription, generateTripPlan } = require('../services/aiService');
 const db = require('../config/database');
-
+ 
 // ─── POST /api/ai/chat ────────────────────────────────────────────────────────
 // Body: { messages: [{role, content}], userId? }
 // Auth: optional (untuk personalisasi)
@@ -10,17 +10,17 @@ const chat = async (req, res) => {
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ success: false, message: 'messages wajib diisi' });
     }
-
+ 
     const userName = req.user?.name || 'Wisatawan';
     const reply = await chatWithAssistant({ messages, userName });
-
+ 
     res.json({ success: true, data: { reply, role: 'assistant' } });
   } catch (error) {
     console.error('AI Chat error:', error);
     res.status(500).json({ success: false, message: 'AI service error', error: error.message });
   }
 };
-
+ 
 // ─── POST /api/ai/search ──────────────────────────────────────────────────────
 // Body: { query: string }
 const search = async (req, res) => {
@@ -29,14 +29,14 @@ const search = async (req, res) => {
     if (!query?.trim()) {
       return res.status(400).json({ success: false, message: 'query wajib diisi' });
     }
-
+ 
     // Parse intent dengan AI
     const parsed = await smartSearch({ query });
-
+ 
     // Eksekusi search ke database berdasarkan hasil parsing
     const allItems = [...db.hotels, ...db.destinations, ...db.restaurants];
     let results = allItems;
-
+ 
     // Filter by category
     if (parsed.category && parsed.category !== 'All') {
       const catMap = {
@@ -47,17 +47,27 @@ const search = async (req, res) => {
       const mappedCat = catMap[parsed.category];
       if (mappedCat) results = results.filter(i => i.category === mappedCat);
     }
-
+ 
     // Filter by searchQuery
-    if (parsed.searchQuery) {
-      const q = parsed.searchQuery.toLowerCase();
-      results = results.filter(i =>
-        i.name.toLowerCase().includes(q) ||
-        i.location.toLowerCase().includes(q) ||
-        (i.description || '').toLowerCase().includes(q)
-      );
+    // FIX: sebelumnya butuh 1 frasa persis nyangkut di name/location/description
+    // (String.includes utuh) — begitu AI mengembalikan lebih dari 1-2 kata,
+    // hampir pasti 0 hasil karena tidak ada field yang mengandung kalimat
+    // penuh itu. Sekarang dipecah per kata, item lolos kalau match SALAH SATU
+    // kata (OR), jauh lebih toleran terhadap variasi output model.
+    if (parsed.searchQuery?.trim()) {
+      const keywords = parsed.searchQuery
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(w => w.length > 2); // buang kata terlalu pendek (mis. "di", "ke")
+ 
+      if (keywords.length > 0) {
+        results = results.filter(i => {
+          const haystack = `${i.name} ${i.location} ${i.description || ''}`.toLowerCase();
+          return keywords.some(k => haystack.includes(k));
+        });
+      }
     }
-
+ 
     // Filter by price
     if (parsed.filters?.maxPrice) {
       results = results.filter(i => i.price === 0 || i.price <= parsed.filters.maxPrice);
@@ -65,7 +75,7 @@ const search = async (req, res) => {
     if (parsed.filters?.minRating) {
       results = results.filter(i => i.rating >= parsed.filters.minRating);
     }
-
+ 
     res.json({
       success: true,
       data: {
@@ -81,7 +91,7 @@ const search = async (req, res) => {
     res.status(500).json({ success: false, message: 'AI search error', error: error.message });
   }
 };
-
+ 
 // ─── POST /api/ai/generate-description ───────────────────────────────────────
 // Body: { type, name, location, amenities?, price?, rating? }
 // Auth: admin only
@@ -91,7 +101,7 @@ const generateDesc = async (req, res) => {
     if (!type || !name || !location) {
       return res.status(400).json({ success: false, message: 'type, name, location wajib diisi' });
     }
-
+ 
     const description = await generateDescription({ type, name, location, amenities, price, rating });
     res.json({ success: true, data: { description } });
   } catch (error) {
@@ -99,7 +109,7 @@ const generateDesc = async (req, res) => {
     res.status(500).json({ success: false, message: 'AI description error', error: error.message });
   }
 };
-
+ 
 // ─── POST /api/ai/trip-plan ───────────────────────────────────────────────────
 // Body: { duration, budget, interests, startDate?, groupType? }
 // Auth: required
@@ -112,7 +122,7 @@ const tripPlan = async (req, res) => {
         message: 'duration, budget, dan interests wajib diisi',
       });
     }
-
+ 
     const plan = await generateTripPlan({ duration, budget, interests, startDate, groupType });
     res.json({ success: true, data: plan });
   } catch (error) {
@@ -120,5 +130,5 @@ const tripPlan = async (req, res) => {
     res.status(500).json({ success: false, message: 'AI trip plan error', error: error.message });
   }
 };
-
+ 
 module.exports = { chat, search, generateDesc, tripPlan };

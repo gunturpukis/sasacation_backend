@@ -10,10 +10,22 @@ if (missingEnv.length > 0) {
   console.error('Copy .env.example to .env and fill in values.');
   process.exit(1);
 }
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.warn('⚠️  ANTHROPIC_API_KEY not set — AI features will not work.');
-}
-
+// ─── Cek ketersediaan Ollama (AI provider aktif sejak migrasi dari Anthropic) ──
+// Non-fatal: server tetap start walau Ollama belum jalan, tapi endpoint AI
+// akan gagal saat dipanggil. Warning ini membantu diagnosa dari awal startup.
+const OLLAMA_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+fetch(OLLAMA_URL)
+  .then(res => {
+    if (!res.ok) {
+      console.warn(`⚠️  Ollama merespons tapi status tidak OK (${res.status}) di ${OLLAMA_URL}.`);
+    } else {
+      console.log(`✅ Ollama terdeteksi aktif di ${OLLAMA_URL}`);
+    }
+  })
+  .catch(() => {
+    console.warn(`⚠️  Ollama tidak terjangkau di ${OLLAMA_URL} — AI features tidak akan berfungsi. Jalankan "ollama serve" atau buka aplikasi Ollama terlebih dahulu.`);
+  });
+  
 const authRoutes     = require('./routes/auth');
 const hotelsRoutes   = require('./routes/hotels');
 const exploreRoutes  = require('./routes/explore');
