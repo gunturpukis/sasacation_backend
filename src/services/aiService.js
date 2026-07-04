@@ -1,3 +1,4 @@
+
 // src/services/aiService.js — versi Ollama lokal
 const db = require('../config/database');
  
@@ -21,14 +22,31 @@ async function ollamaChat(systemPrompt, messages, jsonMode = false) {
       ...chatMessages,
     ],
     ...(jsonMode && { format: 'json' }),
-    options: { temperature: 0.7, num_ctx: 4096 },
+    options: {
+      temperature: 0.7,
+      num_ctx: 4096,
+      // Batas keras jumlah token output. Tanpa ini, mode JSON (grammar-
+      // constrained decoding) untuk schema bersarang seperti trip planner
+      // bisa generate sangat lambat per-token tanpa batas jelas kapan
+      // berhenti — request jadi menggantung alih-alih selesai/timeout wajar.
+      num_predict: 1500,
+    },
   };
+ 
+  // DEBUG SEMENTARA: supaya kelihatan ukuran prompt & durasi asli di
+  // terminal server — hapus/comment lagi setelah masalah timeout ketemu.
+  const promptChars = systemPrompt.length + JSON.stringify(chatMessages).length;
+  const approxTokens = Math.round(promptChars / 4); // estimasi kasar: ~4 char/token
+  console.log(`[ollamaChat] prompt ~${promptChars} char (~${approxTokens} token perkiraan), num_ctx=4096, jsonMode=${jsonMode}`);
+  const startedAt = Date.now();
  
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+ 
+  console.log(`[ollamaChat] selesai dalam ${((Date.now() - startedAt) / 1000).toFixed(1)}s, status ${res.status}`);
  
   if (!res.ok) {
     // Ollama biasanya mengirim pesan spesifik di body (mis. "model 'x' not
@@ -49,6 +67,8 @@ async function ollamaChat(systemPrompt, messages, jsonMode = false) {
  
 // ─── Build context string dari database ─────────────────────────────────────
 function buildDestinationContext() {
+  console.log(`[buildDestinationContext] hotels=${db.hotels.length} destinations=${db.destinations.length} restaurants=${db.restaurants.length}`);
+ 
   const hotels = db.hotels.map(h =>
     `Hotel: ${h.name} | Lokasi: ${h.location} | Harga: $${h.price}/malam | Rating: ${h.rating} | Fasilitas: ${h.amenities.join(', ')}`
   ).join('\n');
@@ -211,11 +231,43 @@ Buat itinerary HANYA dalam format JSON valid berikut, tanpa teks lain:
 Data hotel, destinasi, dan restoran yang tersedia:
 ${context}
  
-Prioritaskan tempat dari data di atas. Buat itinerary yang realistis dan detail.`;
+Prioritaskan tempat dari data di atas. Buat itinerary yang realistis dan detail.
+PENTING: Balas HANYA dengan objek JSON di atas. Jangan tambahkan penjelasan, catatan, atau teks apapun di luar JSON.`;
  
-  const raw = await ollamaChat(systemPrompt, userMessage, true);
-  const cleaned = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(cleaned);
+  // CATATAN: sengaja TIDAK pakai jsonMode (format:'json') di sini, beda dari
+  // smartSearch. Mode JSON-terkonstrain Ollama (grammar-constrained decoding)
+  // untuk schema flat (smartSearch) tetap cepat, tapi untuk schema BERSARANG
+  // seperti ini (days -> activities -> banyak field) pernah menyebabkan
+  // request menggantung tanpa batas jelas. Instruksi prompt yang ketat +
+  // ekstraksi manual di bawah terbukti jauh lebih stabil untuk kasus ini.
+  const raw = await ollamaChat(systemPrompt, userMessage, false);
+ 
+  // Ekstrak blok JSON pertama secara manual (dari '{' pertama sampai '}'
+  // yang menutupnya, dihitung lewat brace counting) — lebih toleran
+  // dibanding regex/replace sederhana kalau model menambahkan sedikit teks
+  // pembuka/penutup di luar instruksi.
+  const start = raw.indexOf('{');
+  if (start === -1) {
+    throw new Error('AI tidak mengembalikan JSON yang valid untuk trip plan');
+  }
+  let depth = 0, end = -1;
+  for (let i = start; i < raw.length; i++) {
+    if (raw[i] === '{') depth++;
+    if (raw[i] === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) {
+    throw new Error('AI mengembalikan JSON yang terpotong untuk trip plan (kemungkinan num_predict terlalu kecil untuk durasi trip ini)');
+  }
+ 
+  const jsonSlice = raw.slice(start, end + 1);
+  try {
+    return JSON.parse(jsonSlice);
+  } catch (e) {
+    throw new Error(`Gagal parse JSON trip plan dari AI: ${e.message}`);
+  }
 }
  
 module.exports = { chatWithAssistant, smartSearch, generateDescription, generateTripPlan };
