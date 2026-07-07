@@ -5,7 +5,7 @@ const { authMiddleware } = require('../middleware/auth');
 
 router.post('/register', register);
 router.post('/login', login);
-router.post('/social', socialLogin);   // Google & Apple
+router.post('/social', socialLogin);
 router.get('/me', authMiddleware, getMe);
 router.put('/profile', authMiddleware, updateProfile);
 

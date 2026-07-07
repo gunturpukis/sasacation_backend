@@ -1,204 +1,132 @@
-const { v4: uuidv4 } = require('uuid');
-const db = require('../config/database');
+const pool = require('../config/db');
 
-// In-memory payments store
-
-
-// Payment methods available (mock)
 const PAYMENT_METHODS = [
-  { id: 'credit_card', label: 'Kartu Kredit / Debit', icon: 'credit_card', available: true },
-  { id: 'bank_transfer', label: 'Transfer Bank', icon: 'account_balance', available: true },
-  { id: 'gopay', label: 'GoPay', icon: 'account_balance_wallet', available: true },
-  { id: 'ovo', label: 'OVO', icon: 'account_balance_wallet', available: true },
-  { id: 'dana', label: 'DANA', icon: 'account_balance_wallet', available: true },
-  { id: 'qris', label: 'QRIS', icon: 'qr_code_scanner', available: true },
+  { id: 'credit_card',   label: 'Kartu Kredit / Debit', icon: 'credit_card',           available: true },
+  { id: 'bank_transfer', label: 'Transfer Bank',         icon: 'account_balance',        available: true },
+  { id: 'gopay',         label: 'GoPay',                 icon: 'account_balance_wallet', available: true },
+  { id: 'ovo',           label: 'OVO',                   icon: 'account_balance_wallet', available: true },
+  { id: 'dana',          label: 'DANA',                  icon: 'account_balance_wallet', available: true },
+  { id: 'qris',          label: 'QRIS',                  icon: 'qr_code_scanner',        available: true },
 ];
 
 // GET /api/checkout/methods
-const getPaymentMethods = (req, res) => {
+const getPaymentMethods = (_req, res) => {
   res.json({ success: true, data: PAYMENT_METHODS });
 };
 
 // POST /api/checkout/initiate
-// Body: { hotelId, checkIn, checkOut, guestCount, notes? }
-// Creates a checkout session before payment
-const initiateCheckout = (req, res) => {
+// Hitung harga (subtotal + pajak + biaya layanan), belum simpan ke DB
+const initiateCheckout = async (req, res) => {
   try {
     const { hotelId, checkIn, checkOut, guestCount, notes } = req.body;
+    if (!hotelId || !checkIn || !checkOut || !guestCount)
+      return res.status(400).json({ success: false, message: 'hotelId, checkIn, checkOut, guestCount wajib diisi' });
 
-    if (!hotelId || !checkIn || !checkOut || !guestCount) {
-      return res.status(400).json({
-        success: false,
-        message: 'hotelId, checkIn, checkOut, guestCount wajib diisi',
-      });
-    }
-
-    const hotel = db.hotels.find(h => h.id === hotelId);
-    if (!hotel) {
+    const { rows } = await pool.query('SELECT * FROM hotels WHERE id = $1 AND available = true', [hotelId]);
+    if (rows.length === 0)
       return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
-    }
+    const hotel = rows[0];
 
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
     const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
-
-    if (nights <= 0) {
+    if (nights <= 0)
       return res.status(400).json({ success: false, message: 'Tanggal checkout harus setelah checkin' });
-    }
 
-    const subtotal = hotel.price * nights;
-    const taxRate = 0.11; // 11% PPN
+    const pricePerNight = Number(hotel.price);
+    const subtotal = pricePerNight * nights;
+    const taxRate = 0.11;
     const serviceFee = 15;
     const tax = Math.round(subtotal * taxRate);
     const total = subtotal + tax + serviceFee;
 
-    const checkoutSession = {
-      sessionId: uuidv4(),
-      userId: req.user.id,
-      hotel: {
-        id: hotel.id,
-        name: hotel.name,
-        location: hotel.location,
-        image: hotel.image,
-        rating: hotel.rating,
-        amenities: hotel.amenities,
+    res.json({
+      success: true,
+      data: {
+        hotel: {
+          id: hotel.id, name: hotel.name, location: hotel.location,
+          image: hotel.image, rating: hotel.rating, amenities: hotel.amenities,
+        },
+        checkIn: checkInDate.toISOString(),
+        checkOut: checkOutDate.toISOString(),
+        nights,
+        guestCount: Number(guestCount),
+        notes: notes || '',
+        pricing: { pricePerNight, subtotal, tax, taxRate: taxRate * 100, serviceFee, total, currency: 'USD' },
+        paymentMethods: PAYMENT_METHODS,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       },
-      checkIn: checkInDate.toISOString(),
-      checkOut: checkOutDate.toISOString(),
-      nights,
-      guestCount: Number(guestCount),
-      notes: notes || '',
-      pricing: {
-        pricePerNight: hotel.price,
-        subtotal,
-        tax,
-        taxRate: taxRate * 100,
-        serviceFee,
-        total,
-        currency: 'USD',
-      },
-      paymentMethods: PAYMENT_METHODS,
-      status: 'pending',
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), // 15 menit
-      createdAt: new Date().toISOString(),
-    };
-
-    // Store session (in-memory, production: Redis)
-    
-    db.checkoutSessions.push(checkoutSession);
-
-    res.json({ success: true, data: checkoutSession });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
   }
 };
 
 // POST /api/checkout/pay
-// Body: { sessionId, paymentMethod, paymentDetails? }
-const processPayment = (req, res) => {
+// Simpan booking + payment ke PostgreSQL dalam SATU transaksi (atomic)
+// Kalau salah satu gagal (misal insert payment error), booking ikut di-rollback
+const processPayment = async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { sessionId, paymentMethod, paymentDetails } = req.body;
+    const { hotelId, checkIn, checkOut, guestCount, notes, paymentMethod } = req.body;
+    if (!hotelId || !checkIn || !checkOut || !guestCount || !paymentMethod)
+      return res.status(400).json({ success: false, message: 'Data pembayaran tidak lengkap' });
 
-    if (!sessionId || !paymentMethod) {
-      return res.status(400).json({ success: false, message: 'sessionId dan paymentMethod wajib diisi' });
-    }
+    const { rows: hotelRows } = await client.query('SELECT * FROM hotels WHERE id = $1', [hotelId]);
+    if (hotelRows.length === 0)
+      return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
+    const hotel = hotelRows[0];
 
-    const sessionIdx = (db.checkoutSessions || []).findIndex(
-      s => s.sessionId === sessionId && s.userId === req.user.id
-    );
+    const checkInDate = new Date(checkIn);
+    const checkOutDate = new Date(checkOut);
+    const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
+    const pricePerNight = Number(hotel.price);
+    const subtotal = pricePerNight * nights;
+    const total = subtotal + Math.round(subtotal * 0.11) + 15;
 
-    if (sessionIdx === -1) {
-      return res.status(404).json({ success: false, message: 'Checkout session tidak ditemukan' });
-    }
+    const bookingCode = 'SAC-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    const transactionId = 'TXN-' + Date.now();
 
-    const session = db.checkoutSessions[sessionIdx];
+    await client.query('BEGIN');
 
-    if (session.status !== 'pending') {
-      return res.status(400).json({ success: false, message: 'Session sudah tidak aktif' });
-    }
+    // 1. Buat booking
+    const bookingResult = await client.query(`
+      INSERT INTO bookings (booking_code, user_id, hotel_id, check_in, check_out, nights, guest_count, price_per_night, total_price, notes, status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'confirmed')
+      RETURNING *
+    `, [bookingCode, req.user.id, hotelId, checkInDate, checkOutDate, nights, guestCount, pricePerNight, total, notes || '']);
+    const booking = bookingResult.rows[0];
 
-    if (new Date(session.expiresAt) < new Date()) {
-      return res.status(400).json({ success: false, message: 'Checkout session sudah expired' });
-    }
+    // 2. Buat payment, terhubung ke booking yang baru dibuat
+    const paymentResult = await client.query(`
+      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status, paid_at)
+      VALUES ($1,$2,$3,$4,$5,'USD','success',NOW())
+      RETURNING *
+    `, [transactionId, booking.id, req.user.id, paymentMethod, total]);
+    const payment = paymentResult.rows[0];
 
-    // Simulate payment processing (mock success)
-    const paymentSuccess = true; // Di production: call payment gateway
-
-    if (!paymentSuccess) {
-      return res.status(402).json({ success: false, message: 'Pembayaran gagal' });
-    }
-
-    // Create booking
-    const booking = {
-      id: uuidv4(),
-      userId: req.user.id,
-      userName: db.users.find(u => u.id === req.user.id)?.name || 'User',
-      hotelId: session.hotel.id,
-      hotelName: session.hotel.name,
-      hotelLocation: session.hotel.location,
-      hotelImage: session.hotel.image,
-      checkIn: session.checkIn,
-      checkOut: session.checkOut,
-      nights: session.nights,
-      guestCount: session.guestCount,
-      pricePerNight: session.pricing.pricePerNight,
-      totalPrice: session.pricing.total,
-      notes: session.notes,
-      status: 'confirmed',
-      bookingCode: 'SAC-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
-      createdAt: new Date().toISOString(),
-    };
-
-    db.bookings.push(booking);
-
-    // Create payment record
-    const payment = {
-      id: uuidv4(),
-      bookingId: booking.id,
-      userId: req.user.id,
-      sessionId,
-      method: paymentMethod,
-      amount: session.pricing.total,
-      currency: 'USD',
-      status: 'success',
-      transactionId: 'TXN-' + Date.now(),
-      paidAt: new Date().toISOString(),
-      details: paymentDetails || {},
-    };
-
-    db.payments.push(payment);
-
-    // Mark session as completed
-    db.checkoutSessions[sessionIdx].status = 'completed';
+    await client.query('COMMIT');
 
     res.json({
       success: true,
       message: 'Pembayaran berhasil!',
       data: {
-        booking,
+        booking: { ...booking, hotel: { id: hotel.id, name: hotel.name, location: hotel.location, image: hotel.image } },
         payment: {
-          transactionId: payment.transactionId,
+          transactionId: payment.transaction_id,
           method: payment.method,
-          amount: payment.amount,
+          amount: Number(payment.amount),
           status: payment.status,
-          paidAt: payment.paidAt,
+          paidAt: payment.paid_at,
         },
       },
     });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  } finally {
+    client.release();
   }
 };
 
-// GET /api/checkout/session/:sessionId
-const getSession = (req, res) => {
-  const session = (db.checkoutSessions || []).find(
-    s => s.sessionId === req.params.sessionId && s.userId === req.user.id
-  );
-  if (!session) {
-    return res.status(404).json({ success: false, message: 'Session tidak ditemukan' });
-  }
-  res.json({ success: true, data: session });
-};
-
-module.exports = { getPaymentMethods, initiateCheckout, processPayment, getSession };
+module.exports = { getPaymentMethods, initiateCheckout, processPayment };

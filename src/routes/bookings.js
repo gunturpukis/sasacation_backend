@@ -3,14 +3,14 @@ const router = express.Router();
 const { getMyBookings, getBookingById, cancelBooking, getAllBookings } = require('../controllers/bookingsController');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 
-router.use(authMiddleware);
+router.use(authMiddleware); // semua booking wajib login
 
 router.get('/my', getMyBookings);
 router.get('/', adminMiddleware, getAllBookings);
 router.get('/:id', getBookingById);
 router.patch('/:id/cancel', cancelBooking);
 
-// NOTE: POST (create booking) sekarang hanya melalui /api/checkout/pay
-// untuk memastikan semua booking melewati payment flow
+// NOTE: booking baru HANYA dibuat lewat /api/checkout/pay,
+// supaya setiap booking pasti punya payment yang menyertainya
 
 module.exports = router;

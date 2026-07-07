@@ -1,115 +1,109 @@
-const { v4: uuidv4 } = require('uuid');
-const db = require('../config/database');
+const pool = require('../config/db');
 
-// GET /api/bookings/my   - booking milik user yang login
-const getMyBookings = (req, res) => {
-  const bookings = db.bookings
-    .filter(b => b.userId === req.user.id)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+// GET /api/bookings/my — booking milik user yang login, JOIN dengan hotel
+const getMyBookings = async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        b.*,
+        json_build_object(
+          'id', h.id, 'name', h.name, 'location', h.location,
+          'image', h.image, 'rating', h.rating
+        ) AS hotel,
+        json_build_object(
+          'transactionId', p.transaction_id, 'method', p.method,
+          'status', p.status, 'paidAt', p.paid_at
+        ) AS payment
+      FROM bookings b
+      JOIN hotels h ON h.id = b.hotel_id
+      LEFT JOIN payments p ON p.booking_id = b.id
+      WHERE b.user_id = $1
+      ORDER BY b.created_at DESC
+    `, [req.user.id]);
 
-  // Enrich dengan data hotel
-  const enriched = bookings.map(b => {
-    const hotel = db.hotels.find(h => h.id === b.hotelId);
-    return { ...b, hotel: hotel || null };
-  });
-
-  res.json({ success: true, data: enriched });
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
 };
 
 // GET /api/bookings/:id
-const getBookingById = (req, res) => {
-  const booking = db.bookings.find(b => b.id === req.params.id);
-  if (!booking) return res.status(404).json({ success: false, message: 'Booking tidak ditemukan' });
-  if (booking.userId !== req.user.id && req.user.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Akses ditolak' });
+const getBookingById = async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT b.*, json_build_object('id', h.id, 'name', h.name, 'location', h.location, 'image', h.image) AS hotel
+      FROM bookings b JOIN hotels h ON h.id = b.hotel_id
+      WHERE b.id = $1
+    `, [req.params.id]);
+
+    if (rows.length === 0)
+      return res.status(404).json({ success: false, message: 'Booking tidak ditemukan' });
+
+    const booking = rows[0];
+    if (booking.user_id !== req.user.id && req.user.role !== 'admin')
+      return res.status(403).json({ success: false, message: 'Akses ditolak' });
+
+    res.json({ success: true, data: booking });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
   }
-
-  const hotel = db.hotels.find(h => h.id === booking.hotelId);
-  res.json({ success: true, data: { ...booking, hotel: hotel || null } });
-};
-
-// POST /api/bookings
-const createBooking = (req, res) => {
-  const { hotelId, checkIn, checkOut, guestCount, notes } = req.body;
-
-  if (!hotelId || !checkIn || !checkOut || !guestCount) {
-    return res.status(400).json({ success: false, message: 'hotelId, checkIn, checkOut, dan guestCount wajib diisi' });
-  }
-
-  const hotel = db.hotels.find(h => h.id === hotelId);
-  if (!hotel) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
-  if (!hotel.available) return res.status(400).json({ success: false, message: 'Hotel tidak tersedia' });
-
-  const checkInDate = new Date(checkIn);
-  const checkOutDate = new Date(checkOut);
-  if (checkOutDate <= checkInDate) {
-    return res.status(400).json({ success: false, message: 'Tanggal check-out harus setelah check-in' });
-  }
-
-  const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
-  const totalPrice = hotel.price * nights;
-
-  const newBooking = {
-    id: uuidv4(),
-    userId: req.user.id,
-    userName: req.user.name,
-    hotelId,
-    hotelName: hotel.name,
-    hotelLocation: hotel.location,
-    hotelImage: hotel.image,
-    checkIn: checkInDate.toISOString(),
-    checkOut: checkOutDate.toISOString(),
-    nights,
-    guestCount: Number(guestCount),
-    pricePerNight: hotel.price,
-    totalPrice,
-    notes: notes || '',
-    status: 'confirmed', // confirmed | cancelled | completed
-    bookingCode: 'SAC-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
-    createdAt: new Date().toISOString(),
-  };
-
-  db.bookings.push(newBooking);
-  res.status(201).json({
-    success: true,
-    message: 'Booking berhasil dibuat',
-    data: { ...newBooking, hotel },
-  });
 };
 
 // PATCH /api/bookings/:id/cancel
-const cancelBooking = (req, res) => {
-  const idx = db.bookings.findIndex(b => b.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ success: false, message: 'Booking tidak ditemukan' });
+const cancelBooking = async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM bookings WHERE id = $1', [req.params.id]);
+    if (rows.length === 0)
+      return res.status(404).json({ success: false, message: 'Booking tidak ditemukan' });
 
-  const booking = db.bookings[idx];
-  if (booking.userId !== req.user.id && req.user.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Akses ditolak' });
-  }
-  if (booking.status === 'cancelled') {
-    return res.status(400).json({ success: false, message: 'Booking sudah dibatalkan' });
-  }
+    const booking = rows[0];
+    if (booking.user_id !== req.user.id && req.user.role !== 'admin')
+      return res.status(403).json({ success: false, message: 'Akses ditolak' });
+    if (booking.status === 'cancelled')
+      return res.status(400).json({ success: false, message: 'Booking sudah dibatalkan' });
 
-  db.bookings[idx].status = 'cancelled';
-  res.json({ success: true, message: 'Booking berhasil dibatalkan', data: db.bookings[idx] });
+    const updated = await pool.query(
+      `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    res.json({ success: true, message: 'Booking berhasil dibatalkan', data: updated.rows[0] });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
 };
 
-// GET /api/bookings  (admin only)
-const getAllBookings = (req, res) => {
-  const { status, page = 1, limit = 20 } = req.query;
-  let bookings = [...db.bookings];
-  if (status) bookings = bookings.filter(b => b.status === status);
-  bookings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+// GET /api/bookings (admin) — semua booking, dengan filter status opsional
+const getAllBookings = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    const params = [];
+    let where = '';
+    if (status) { params.push(status); where = `WHERE b.status = $${params.length}`; }
 
-  const total = bookings.length;
-  const startIdx = (Number(page) - 1) * Number(limit);
-  const paginated = bookings.slice(startIdx, startIdx + Number(limit));
+    const countResult = await pool.query(`SELECT COUNT(*) FROM bookings b ${where}`, params);
+    const total = Number(countResult.rows[0].count);
 
-  res.json({
-    success: true,
-    data: paginated,
-    meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
-  });
+    params.push(Number(limit), (Number(page) - 1) * Number(limit));
+    const { rows } = await pool.query(`
+      SELECT
+        b.*,
+        json_build_object('name', u.name, 'email', u.email) AS user,
+        json_build_object('id', h.id, 'name', h.name, 'location', h.location) AS hotel
+      FROM bookings b
+      JOIN users u ON u.id = b.user_id
+      JOIN hotels h ON h.id = b.hotel_id
+      ${where}
+      ORDER BY b.created_at DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+
+    res.json({
+      success: true, data: rows,
+      meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
 };
 
-module.exports = { getMyBookings, getBookingById, createBooking, cancelBooking, getAllBookings };
+module.exports = { getMyBookings, getBookingById, cancelBooking, getAllBookings };

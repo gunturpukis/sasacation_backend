@@ -1,196 +1,182 @@
+// src/services/aiService.js
+// Semua fitur AI Sasacation, sekarang berbasis RAG (Retrieval-Augmented Generation).
+//
+// Perbedaan dari versi sebelumnya:
+//   - SEBELUM: seluruh data hotel/destinasi/resto di-dump ke prompt setiap kali
+//     (boros token, tidak scalable kalau data ratusan/ribuan)
+//   - SEKARANG: hanya dokumen yang RELEVAN dengan query yang diambil via
+//     similarity search di pgvector, lalu disisipkan ke prompt (jauh lebih
+//     ringkas dan akurat, serta scalable untuk data besar)
 
-// src/services/aiService.js — versi Ollama lokal
-const db = require('../config/database');
- 
+const { ragRetrieve } = require('./ragService');
+
 const OLLAMA_URL   = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL    || 'qwen2.5:7b';
- 
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL    || 'llama3.1:latest';
+
 // ─── Helper: panggil Ollama chat endpoint ───────────────────────────────────
-// `messages` boleh berupa string (satu pesan user) ATAU array [{role, content}]
-// supaya bisa dipakai untuk chat multi-turn (chatWithAssistant) maupun
-// satu-kali prompt (smartSearch, generateDescription, generateTripPlan).
 async function ollamaChat(systemPrompt, messages, jsonMode = false) {
   const chatMessages = typeof messages === 'string'
     ? [{ role: 'user', content: messages }]
     : messages;
- 
+
   const body = {
     model: OLLAMA_MODEL,
     stream: false,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...chatMessages,
-    ],
+    messages: [{ role: 'system', content: systemPrompt }, ...chatMessages],
     ...(jsonMode && { format: 'json' }),
-    options: {
-      temperature: 0.7,
-      num_ctx: 4096,
-      // Batas keras jumlah token output. Tanpa ini, mode JSON (grammar-
-      // constrained decoding) untuk schema bersarang seperti trip planner
-      // bisa generate sangat lambat per-token tanpa batas jelas kapan
-      // berhenti — request jadi menggantung alih-alih selesai/timeout wajar.
-      num_predict: 1500,
-    },
+    options: { temperature: 0.7, num_ctx: 4096, num_predict: 1500 },
   };
- 
-  // DEBUG SEMENTARA: supaya kelihatan ukuran prompt & durasi asli di
-  // terminal server — hapus/comment lagi setelah masalah timeout ketemu.
-  const promptChars = systemPrompt.length + JSON.stringify(chatMessages).length;
-  const approxTokens = Math.round(promptChars / 4); // estimasi kasar: ~4 char/token
-  console.log(`[ollamaChat] prompt ~${promptChars} char (~${approxTokens} token perkiraan), num_ctx=4096, jsonMode=${jsonMode}`);
+
   const startedAt = Date.now();
- 
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
- 
   console.log(`[ollamaChat] selesai dalam ${((Date.now() - startedAt) / 1000).toFixed(1)}s, status ${res.status}`);
- 
+
   if (!res.ok) {
-    // Ollama biasanya mengirim pesan spesifik di body (mis. "model 'x' not
-    // found, try pulling it first") — jauh lebih berguna daripada statusText
-    // generik ("Not Found") saat debugging.
     let detail = res.statusText;
     try {
       const errBody = await res.json();
       if (errBody?.error) detail = errBody.error;
-    } catch (_) {
-      // body bukan JSON / kosong, biarkan pakai statusText
-    }
+    } catch (_) {}
     throw new Error(`Ollama error (${res.status}): ${detail}`);
   }
   const data = await res.json();
   return data.message.content;
 }
- 
-// ─── Build context string dari database ─────────────────────────────────────
-function buildDestinationContext() {
-  console.log(`[buildDestinationContext] hotels=${db.hotels.length} destinations=${db.destinations.length} restaurants=${db.restaurants.length}`);
- 
-  const hotels = db.hotels.map(h =>
-    `Hotel: ${h.name} | Lokasi: ${h.location} | Harga: $${h.price}/malam | Rating: ${h.rating} | Fasilitas: ${h.amenities.join(', ')}`
-  ).join('\n');
- 
-  const destinations = db.destinations.map(d =>
-    `Destinasi: ${d.name} | Lokasi: ${d.location} | Kategori: ${d.subCategory} | Rating: ${d.rating} | ${d.description?.slice(0, 100)}...`
-  ).join('\n');
- 
-  const restaurants = db.restaurants.map(r =>
-    `Restoran: ${r.name} | Lokasi: ${r.location} | Masakan: ${r.cuisine} | Harga rata-rata: $${r.price} | Jam buka: ${r.openHours}`
-  ).join('\n');
- 
-  return `
-=== DATA HOTEL LOMBOK ===
-${hotels}
- 
-=== DESTINASI WISATA LOMBOK ===
-${destinations}
- 
-=== KULINER LOMBOK ===
-${restaurants}
- 
-=== KATEGORI WISATA ===
-Beaches (Pantai), Hotels, Culinary (Kuliner), Islands (Pulau Gili), Adventure (Petualangan Rinjani), Culture (Budaya Sasak)
-`.trim();
-}
- 
-// ─── 1. CHAT ASSISTANT ───────────────────────────────────────────────────────
+
+// ─── 1. CHAT ASSISTANT (RAG) ──────────────────────────────────────────────────
 async function chatWithAssistant({ messages, userName }) {
-  const context = buildDestinationContext();
+  // Ambil pesan terakhir user sebagai query untuk retrieval
+  const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+
+  console.log(`[RAG Chat] Query: "${lastUserMessage}"`);
+  const { docs, context } = await ragRetrieve(lastUserMessage, { topK: 5 });
+  console.log(`[RAG Chat] Ditemukan ${docs.length} dokumen relevan`);
+
   const systemPrompt = `Kamu adalah Sasa, AI travel assistant untuk aplikasi Sasacation — platform wisata Lombok, Indonesia.
- 
+
 KEPRIBADIAN:
 - Ramah, antusias tentang Lombok, dan membantu
 - Jawab dalam bahasa yang sama dengan user (Indonesia atau Inggris)
-- Berikan rekomendasi spesifik berdasarkan data yang ada
-- Selalu mention harga, rating, atau detail relevan jika tersedia
- 
-DATA REAL-TIME SASACATION:
+- Berikan rekomendasi spesifik berdasarkan dokumen yang ditemukan di bawah
+
+DOKUMEN RELEVAN (hasil pencarian similarity dari database Sasacation):
 ${context}
- 
+
 PANDUAN:
-- Rekomendasikan tempat dari data di atas jika relevan
+- HANYA gunakan informasi dari dokumen di atas. Jangan mengarang data yang tidak ada.
+- Jika dokumen di atas tidak relevan dengan pertanyaan user, katakan dengan jujur bahwa kamu tidak punya info spesifik, lalu berikan saran umum.
 - Jika ditanya tentang booking, arahkan user untuk menekan tombol "Book Now" di detail hotel
-- Jangan mengarang data yang tidak ada di atas
 - User saat ini: ${userName || 'Wisatawan'}`;
- 
-  // Kirim seluruh riwayat percakapan (multi-turn), bukan cuma pesan terakhir.
+
   return ollamaChat(systemPrompt, messages);
 }
- 
-// ─── 2. SMART SEARCH ─────────────────────────────────────────────────────────
+
+// ─── 2. SMART SEARCH (RAG) ────────────────────────────────────────────────────
 async function smartSearch({ query }) {
-  const context = buildDestinationContext();
- 
+  console.log(`[RAG Search] Query: "${query}"`);
+  const { docs, context } = await ragRetrieve(query, { topK: 8 });
+  console.log(`[RAG Search] Ditemukan ${docs.length} dokumen relevan`);
+
+  // Kalau RAG sudah menemukan dokumen relevan, kita bisa langsung kembalikan
+  // metadata-nya tanpa perlu LLM sama sekali untuk kasus sederhana.
+  // Tapi untuk interpretasi & saran yang lebih natural, tetap panggil LLM.
   const systemPrompt = `Kamu adalah search engine cerdas untuk aplikasi wisata Lombok.
-Berikan respons HANYA dalam format JSON valid berikut, tanpa teks lain:
+Berdasarkan dokumen yang ditemukan lewat pencarian semantik di bawah, berikan interpretasi singkat.
+Balas HANYA dalam format JSON valid:
 {
-  "interpretation": "penjelasan singkat apa yang user cari",
-  "category": "Hotels|Destinations|Culinary|Beaches|Islands|Adventure|Culture|All",
-  "filters": {
-    "minPrice": null,
-    "maxPrice": null,
-    "minRating": null
-  },
-  "suggestions": ["nama tempat 1", "nama tempat 2"],
-  "searchQuery": "kata kunci untuk filter database"
-}
- 
-ATURAN PENTING:
-- "category" WAJIB berisi TEPAT SATU nilai dari daftar di atas (contoh: "Hotels"), JANGAN pernah menggabungkan beberapa kategori dengan "|" atau koma. Kalau query menyentuh beberapa kategori sekaligus, pilih kategori yang paling dominan, atau gunakan "All".
-- "searchQuery" WAJIB berupa 1-2 kata kunci pendek (nama tempat, lokasi, atau jenis makanan/aktivitas spesifik), BUKAN kalimat penuh dari user. Contoh benar: "pantai", "senggigi", "seafood". Contoh SALAH: "hotel murah dekat pantai".
-- Kalau tidak ada kata kunci spesifik yang bisa diekstrak (query hanya berisi kata umum seperti "murah", "bagus", "rekomendasi"), kosongkan "searchQuery" (string kosong ""), dan biarkan filter kategori/harga/rating yang bekerja.
-- Kata seperti "murah" masuk ke filters.maxPrice (estimasikan angka wajar), BUKAN ke searchQuery.`;
- 
-  const userMessage = `Query user: "${query}"\n\nData tersedia:\n${context}\n\nParse query ini menjadi filter pencarian.`;
- 
+  "interpretation": "penjelasan singkat apa yang user cari, berdasarkan dokumen yang ditemukan",
+  "suggestions": ["nama tempat 1 dari dokumen", "nama tempat 2 dari dokumen"]
+}`;
+
+  const userMessage = `Query user: "${query}"
+
+Dokumen yang ditemukan lewat RAG similarity search:
+${context}
+
+Berikan interpretation dan suggestions berdasarkan dokumen di atas.`;
+
   const raw = await ollamaChat(systemPrompt, userMessage, true);
   const cleaned = raw.replace(/```json|```/g, '').trim();
   const parsed = JSON.parse(cleaned);
- 
-  // Jaring pengaman: model kadang masih menggabungkan kategori dengan "|"/","
-  // meski sudah dilarang di prompt. Ambil token pertama saja supaya tetap
-  // valid dipakai sebagai key di catMap pada controller.
-  if (typeof parsed.category === 'string' && /[|,]/.test(parsed.category)) {
-    parsed.category = parsed.category.split(/[|,]/)[0].trim();
-  }
-  // Kalau searchQuery ternyata masih berupa kalimat panjang (>3 kata), ini
-  // kemungkinan besar bukan keyword — kosongkan supaya controller tidak
-  // over-filter jadi 0 hasil. Filter kategori/harga/rating tetap jalan.
-  if (typeof parsed.searchQuery === 'string' && parsed.searchQuery.trim().split(/\s+/).length > 3) {
-    parsed.searchQuery = '';
-  }
- 
-  return parsed;
+
+  // Kembalikan hasil RAG (metadata dokumen asli) + interpretasi dari LLM
+  return {
+    interpretation: parsed.interpretation || `Hasil pencarian untuk: ${query}`,
+    suggestions: parsed.suggestions || [],
+    // Ini bagian pentingnya — hasil RETRIEVAL langsung dari pgvector,
+    // bukan dari LLM. Jadi datanya selalu akurat sesuai database.
+    results: docs.map(d => ({ ...d.metadata, type: d.doc_type, similarity: d.similarity })),
+    totalResults: docs.length,
+  };
 }
- 
-// ─── 3. AUTO-GENERATE DESKRIPSI ──────────────────────────────────────────────
+
+// ─── 3. AUTO-GENERATE DESKRIPSI (RAG untuk konsistensi gaya) ─────────────────
 async function generateDescription({ type, name, location, amenities, price, rating }) {
   const typeLabel = type === 'hotel' ? 'hotel' : type === 'destination' ? 'destinasi wisata' : 'restoran';
- 
+
+  // RAG di sini dipakai untuk mengambil contoh deskripsi serupa yang sudah ada,
+  // supaya gaya bahasa deskripsi baru konsisten dengan yang lama.
+  const searchQuery = `${typeLabel} di ${location}`;
+  const { docs } = await ragRetrieve(searchQuery, { topK: 2, docType: type === 'hotel' ? 'hotel' : type === 'destination' ? 'destination' : 'restaurant' });
+
+  const exampleStyle = docs.length > 0
+    ? `\n\nContoh gaya deskripsi yang sudah ada di Sasacation (untuk referensi tone & gaya):\n${docs.map(d => d.content.split('Deskripsi: ')[1] || '').filter(Boolean).join('\n---\n')}`
+    : '';
+
   const systemPrompt = `Kamu adalah copywriter profesional untuk platform wisata Lombok.
-Tulis deskripsi yang menarik, informatif, dan membuat wisatawan tertarik mengunjungi tempat tersebut.
-Gunakan bahasa Indonesia yang natural dan memikat. Panjang 2-3 paragraf.
-JANGAN gunakan kalimat generik. Fokus pada keunikan dan daya tarik spesifik tempat tersebut.`;
- 
+Tulis deskripsi yang menarik, informatif, dan membuat wisatawan tertarik.
+Gunakan bahasa Indonesia yang natural. Panjang 2-3 paragraf.
+JANGAN gunakan kalimat generik. Fokus pada keunikan tempat tersebut.${exampleStyle}`;
+
   const userMessage = `Buat deskripsi untuk ${typeLabel} berikut:
 Nama: ${name}
 Lokasi: ${location}
 ${amenities?.length ? `Fasilitas: ${amenities.join(', ')}` : ''}
 ${price ? `Harga: $${price}` : ''}
 ${rating ? `Rating: ${rating}/5` : ''}
- 
-Tulis deskripsi yang memukau!`;
- 
+
+Tulis deskripsi yang memukau, dengan gaya konsisten seperti contoh di atas jika ada!`;
+
   return ollamaChat(systemPrompt, userMessage);
 }
- 
-// ─── 4. TRIP PLANNER ─────────────────────────────────────────────────────────
+
+// ─── 4. TRIP PLANNER (RAG multi-query) ────────────────────────────────────────
 async function generateTripPlan({ duration, budget, interests, startDate, groupType }) {
-  const context = buildDestinationContext();
- 
+  console.log(`[RAG Trip Plan] Interests: ${interests.join(', ')}`);
+
+  // Retrieve dokumen relevan untuk SETIAP interest secara terpisah,
+  // supaya semua kategori yang diminta user terwakili di context.
+  // Ini penting: kalau cuma 1 query gabungan, hasil retrieval bisa bias
+  // ke satu kategori yang paling dominan secara semantik.
+  const allDocs = [];
+  const seenIds = new Set();
+
+  for (const interest of interests) {
+    const { docs } = await ragRetrieve(`wisata ${interest} Lombok`, { topK: 4 });
+    for (const doc of docs) {
+      if (!seenIds.has(doc.doc_id)) {
+        seenIds.add(doc.doc_id);
+        allDocs.push(doc);
+      }
+    }
+  }
+
+  // Tambahan: retrieve hotel secara eksplisit untuk akomodasi
+  const { docs: hotelDocs } = await ragRetrieve(`hotel penginapan budget ${budget}`, { topK: 3, docType: 'hotel' });
+  for (const doc of hotelDocs) {
+    if (!seenIds.has(doc.doc_id)) {
+      seenIds.add(doc.doc_id);
+      allDocs.push(doc);
+    }
+  }
+
+  console.log(`[RAG Trip Plan] Total dokumen unik terkumpul: ${allDocs.length}`);
+  const context = allDocs.map(d => d.content).join('\n\n---\n\n');
+
   const systemPrompt = `Kamu adalah trip planner expert untuk Lombok, Indonesia.
 Buat itinerary HANYA dalam format JSON valid berikut, tanpa teks lain:
 {
@@ -211,7 +197,7 @@ Buat itinerary HANYA dalam format JSON valid berikut, tanpa teks lain:
           "duration": "2 jam",
           "estimatedCost": 0,
           "notes": "tips atau catatan",
-          "itemId": "id dari database jika ada, null jika tidak"
+          "itemId": "id dari dokumen jika ada, null jika tidak"
         }
       ],
       "dailyCost": 0
@@ -220,54 +206,33 @@ Buat itinerary HANYA dalam format JSON valid berikut, tanpa teks lain:
   "tips": ["tip 1", "tip 2", "tip 3"],
   "bestTimeToVisit": "penjelasan waktu terbaik"
 }`;
- 
+
   const userMessage = `Buat itinerary Lombok untuk:
 - Durasi: ${duration} hari
 - Budget: $${budget} per orang
 - Minat: ${interests.join(', ')}
 - Tanggal mulai: ${startDate || 'fleksibel'}
 - Tipe grup: ${groupType || 'couple'}
- 
-Data hotel, destinasi, dan restoran yang tersedia:
+
+Dokumen tempat yang relevan (hasil RAG similarity search berdasarkan minat user):
 ${context}
- 
-Prioritaskan tempat dari data di atas. Buat itinerary yang realistis dan detail.
-PENTING: Balas HANYA dengan objek JSON di atas. Jangan tambahkan penjelasan, catatan, atau teks apapun di luar JSON.`;
- 
-  // CATATAN: sengaja TIDAK pakai jsonMode (format:'json') di sini, beda dari
-  // smartSearch. Mode JSON-terkonstrain Ollama (grammar-constrained decoding)
-  // untuk schema flat (smartSearch) tetap cepat, tapi untuk schema BERSARANG
-  // seperti ini (days -> activities -> banyak field) pernah menyebabkan
-  // request menggantung tanpa batas jelas. Instruksi prompt yang ketat +
-  // ekstraksi manual di bawah terbukti jauh lebih stabil untuk kasus ini.
+
+Prioritaskan tempat dari dokumen di atas — semuanya sudah difilter relevan dengan minat user.
+Balas HANYA dengan objek JSON, tanpa teks tambahan.`;
+
   const raw = await ollamaChat(systemPrompt, userMessage, false);
- 
-  // Ekstrak blok JSON pertama secara manual (dari '{' pertama sampai '}'
-  // yang menutupnya, dihitung lewat brace counting) — lebih toleran
-  // dibanding regex/replace sederhana kalau model menambahkan sedikit teks
-  // pembuka/penutup di luar instruksi.
+
+  // Brace counting untuk ekstraksi JSON yang toleran
   const start = raw.indexOf('{');
-  if (start === -1) {
-    throw new Error('AI tidak mengembalikan JSON yang valid untuk trip plan');
-  }
+  if (start === -1) throw new Error('AI tidak mengembalikan JSON yang valid untuk trip plan');
   let depth = 0, end = -1;
   for (let i = start; i < raw.length; i++) {
     if (raw[i] === '{') depth++;
-    if (raw[i] === '}') {
-      depth--;
-      if (depth === 0) { end = i; break; }
-    }
+    if (raw[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
   }
-  if (end === -1) {
-    throw new Error('AI mengembalikan JSON yang terpotong untuk trip plan (kemungkinan num_predict terlalu kecil untuk durasi trip ini)');
-  }
- 
-  const jsonSlice = raw.slice(start, end + 1);
-  try {
-    return JSON.parse(jsonSlice);
-  } catch (e) {
-    throw new Error(`Gagal parse JSON trip plan dari AI: ${e.message}`);
-  }
+  if (end === -1) throw new Error('AI mengembalikan JSON yang terpotong untuk trip plan');
+
+  return JSON.parse(raw.slice(start, end + 1));
 }
- 
+
 module.exports = { chatWithAssistant, smartSearch, generateDescription, generateTripPlan };

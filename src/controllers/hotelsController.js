@@ -1,73 +1,43 @@
-const { v4: uuidv4 } = require('uuid');
-const db = require('../config/database');
+const pool = require('../config/db');
 
-// GET /api/hotels
-const getHotels = (req, res) => {
-  const { featured, search, minPrice, maxPrice, page = 1, limit = 10 } = req.query;
+const getHotels = async (req, res) => {
+  try {
+    const { featured, search, minPrice, maxPrice, page = 1, limit = 10 } = req.query;
+    const conditions = ['available = true'];
+    const params = [];
 
-  let hotels = [...db.hotels];
+    if (featured === 'true') conditions.push('featured = true');
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`(name ILIKE $${params.length} OR location ILIKE $${params.length})`);
+    }
+    if (minPrice) { params.push(Number(minPrice)); conditions.push(`price >= $${params.length}`); }
+    if (maxPrice) { params.push(Number(maxPrice)); conditions.push(`price <= $${params.length}`); }
 
-  if (featured === 'true') hotels = hotels.filter(h => h.featured);
-  if (search) hotels = hotels.filter(h =>
-    h.name.toLowerCase().includes(search.toLowerCase()) ||
-    h.location.toLowerCase().includes(search.toLowerCase())
-  );
-  if (minPrice) hotels = hotels.filter(h => h.price >= Number(minPrice));
-  if (maxPrice) hotels = hotels.filter(h => h.price <= Number(maxPrice));
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const countResult = await pool.query(`SELECT COUNT(*) FROM hotels ${where}`, params);
+    const total = Number(countResult.rows[0].count);
 
-  const total = hotels.length;
-  const startIdx = (Number(page) - 1) * Number(limit);
-  const paginated = hotels.slice(startIdx, startIdx + Number(limit));
+    params.push(Number(limit), (Number(page) - 1) * Number(limit));
+    const { rows } = await pool.query(
+      `SELECT * FROM hotels ${where} ORDER BY featured DESC, rating DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
 
-  res.json({
-    success: true,
-    data: paginated,
-    meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
-  });
-};
-
-// GET /api/hotels/:id
-const getHotelById = (req, res) => {
-  const hotel = db.hotels.find(h => h.id === req.params.id);
-  if (!hotel) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
-  res.json({ success: true, data: hotel });
-};
-
-// POST /api/hotels  (admin only)
-const createHotel = (req, res) => {
-  const { name, location, address, price, image, images, description, amenities, featured } = req.body;
-  if (!name || !location || !price) {
-    return res.status(400).json({ success: false, message: 'Nama, lokasi, dan harga wajib diisi' });
+    res.json({ success: true, data: rows, meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) } });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
   }
-  const newHotel = {
-    id: uuidv4(),
-    name, location, address: address || '', price: Number(price),
-    rating: 0, reviewCount: 0,
-    image: image || '', images: images || [],
-    description: description || '', amenities: amenities || [],
-    category: 'Hotels', type: 'hotel',
-    featured: featured || false, available: true,
-  };
-  db.hotels.push(newHotel);
-  res.status(201).json({ success: true, message: 'Hotel berhasil ditambahkan', data: newHotel });
 };
 
-// PUT /api/hotels/:id  (admin only)
-const updateHotel = (req, res) => {
-  const idx = db.hotels.findIndex(h => h.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
-
-  db.hotels[idx] = { ...db.hotels[idx], ...req.body, id: req.params.id };
-  res.json({ success: true, message: 'Hotel berhasil diupdate', data: db.hotels[idx] });
+const getHotelById = async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM hotels WHERE id = $1', [req.params.id]);
+    if (rows.length === 0) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
+    res.json({ success: true, data: rows[0] });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
 };
 
-// DELETE /api/hotels/:id  (admin only)
-const deleteHotel = (req, res) => {
-  const idx = db.hotels.findIndex(h => h.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
-
-  db.hotels.splice(idx, 1);
-  res.json({ success: true, message: 'Hotel berhasil dihapus' });
-};
-
-module.exports = { getHotels, getHotelById, createHotel, updateHotel, deleteHotel };
+module.exports = { getHotels, getHotelById };

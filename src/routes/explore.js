@@ -1,12 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getExplore,
-  getDestinations,
-  getDestinationById,
-  getRestaurants,
-  getRestaurantById,
-  getCategories,
+  getExplore, getDestinations, getDestinationById,
+  getRestaurants, getRestaurantById, getCategories,
 } = require('../controllers/exploreController');
 
 router.get('/', getExplore);
