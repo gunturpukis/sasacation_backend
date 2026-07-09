@@ -40,4 +40,49 @@ const getHotelById = async (req, res) => {
   }
 };
 
-module.exports = { getHotels, getHotelById };
+// GET /api/hotels/nearby?lat=&lng=&radius=10&limit=20
+// Hotel terdekat dari koordinat yang dikirim (biasanya lokasi GPS user saat ini).
+// Jarak dihitung dengan formula Haversine langsung di SQL (dalam kilometer),
+// hanya hotel yang punya latitude/longitude yang ikut dihitung.
+const getNearbyHotels = async (req, res) => {
+  try {
+    const { lat, lng, radius = 25, limit = 20 } = req.query;
+    if (lat === undefined || lng === undefined)
+      return res.status(400).json({ success: false, message: 'lat dan lng wajib diisi' });
+
+    const latitude = Number(lat);
+    const longitude = Number(lng);
+    const radiusKm = Number(radius);
+    if (Number.isNaN(latitude) || Number.isNaN(longitude))
+      return res.status(400).json({ success: false, message: 'lat dan lng harus berupa angka' });
+
+    const { rows } = await pool.query(
+      `
+      SELECT *, distance_km FROM (
+        SELECT *,
+          (
+            6371 * acos(
+              LEAST(1, GREATEST(-1,
+                cos(radians($1)) * cos(radians(latitude)) *
+                cos(radians(longitude) - radians($2)) +
+                sin(radians($1)) * sin(radians(latitude))
+              ))
+            )
+          ) AS distance_km
+        FROM hotels
+        WHERE available = true AND latitude IS NOT NULL AND longitude IS NOT NULL
+      ) sub
+      WHERE distance_km <= $3
+      ORDER BY distance_km ASC
+      LIMIT $4
+      `,
+      [latitude, longitude, radiusKm, Number(limit)]
+    );
+
+    res.json({ success: true, data: rows, meta: { lat: latitude, lng: longitude, radiusKm } });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+module.exports = { getHotels, getHotelById, getNearbyHotels };

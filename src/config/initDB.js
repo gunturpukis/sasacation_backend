@@ -28,6 +28,11 @@ async function initDB() {
         avatar      TEXT,
         provider    TEXT        NOT NULL DEFAULT 'email',
         provider_id TEXT,
+        firebase_uid TEXT       UNIQUE,
+        fcm_token    TEXT,
+        fcm_platform TEXT,
+        latitude     NUMERIC,
+        longitude    NUMERIC,
         created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -50,6 +55,8 @@ async function initDB() {
         amenities    TEXT[]      DEFAULT '{}',
         featured     BOOLEAN     DEFAULT false,
         available    BOOLEAN     DEFAULT true,
+        latitude     NUMERIC,
+        longitude    NUMERIC,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -70,6 +77,8 @@ async function initDB() {
         images       TEXT[]      DEFAULT '{}',
         description  TEXT,
         sub_category TEXT        CHECK (sub_category IN ('Beaches','Islands','Adventure','Culture')),
+        latitude     NUMERIC,
+        longitude    NUMERIC,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -91,6 +100,8 @@ async function initDB() {
         description  TEXT,
         cuisine      TEXT,
         open_hours   TEXT,
+        latitude     NUMERIC,
+        longitude    NUMERIC,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )

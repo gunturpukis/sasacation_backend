@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const { admin, requireFirebase } = require('../config/firebase');
 
 function makeToken(user) {
   return jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
@@ -91,6 +92,82 @@ const socialLogin = async (req, res) => {
   }
 };
 
+// POST /api/auth/firebase
+// Login/registrasi via Firebase Auth (Google, Apple, atau Email/Password yang
+// sudah dikelola Firebase di sisi app). BEDA dari socialLogin lama: di sini
+// idToken diverifikasi oleh Firebase Admin SDK, jadi identitas provider
+// (email, uid, nama) TIDAK bisa dipalsukan oleh client — tidak seperti
+// socialLogin lama yang menerima providerId/email apa adanya dari body request.
+const firebaseLogin = async (req, res) => {
+  try {
+    requireFirebase();
+
+    const { idToken } = req.body;
+    if (!idToken) return res.status(400).json({ success: false, message: 'idToken wajib diisi' });
+
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(idToken);
+    } catch (err) {
+      return res.status(401).json({ success: false, message: 'idToken tidak valid atau kadaluarsa' });
+    }
+
+    const { uid, email, name, picture, firebase } = decoded;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Akun Firebase tidak memiliki email' });
+    }
+    const provider = firebase?.sign_in_provider || 'firebase';
+
+    let { rows } = await pool.query(
+      'SELECT * FROM users WHERE firebase_uid = $1 OR email = $2',
+      [uid, email]
+    );
+
+    let user;
+    if (rows.length === 0) {
+      const inserted = await pool.query(
+        `INSERT INTO users (name, email, provider, provider_id, firebase_uid, avatar, role)
+         VALUES ($1,$2,$3,$4,$5,$6,'user') RETURNING *`,
+        [name || email.split('@')[0], email, provider, uid, uid, picture || null]
+      );
+      user = inserted.rows[0];
+    } else {
+      const updated = await pool.query(
+        `UPDATE users SET firebase_uid = $1, provider = $2, avatar = COALESCE($3, avatar), updated_at = NOW()
+         WHERE id = $4 RETURNING *`,
+        [uid, provider, picture, rows[0].id]
+      );
+      user = updated.rows[0];
+    }
+
+    const token = makeToken(user);
+    res.json({ success: true, message: 'Login Firebase berhasil', data: { user: safeUser(user), token } });
+  } catch (e) {
+    if (e.code === 'FIREBASE_NOT_READY') {
+      return res.status(503).json({ success: false, message: e.message });
+    }
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+// PATCH /api/auth/location
+// Simpan lokasi terakhir user (dipakai untuk fitur "hotel terdekat dari saya").
+const updateLocation = async (req, res) => {
+  try {
+    const { latitude, longitude } = req.body;
+    if (latitude === undefined || longitude === undefined)
+      return res.status(400).json({ success: false, message: 'latitude dan longitude wajib diisi' });
+
+    await pool.query(
+      `UPDATE users SET latitude = $1, longitude = $2, updated_at = NOW() WHERE id = $3`,
+      [latitude, longitude, req.user.id]
+    );
+    res.json({ success: true, message: 'Lokasi berhasil disimpan' });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
 const getMe = async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
@@ -114,4 +191,4 @@ const updateProfile = async (req, res) => {
   }
 };
 
-module.exports = { register, login, socialLogin, getMe, updateProfile };
+module.exports = { register, login, socialLogin, firebaseLogin, getMe, updateProfile, updateLocation };

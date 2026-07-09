@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<title>Sasacation — Push Notification Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --teal: #0d3b3e; --gold: #c8a04d; --bg: #f6f4ef; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); margin: 0; padding: 32px 16px; color: #1b1b1b; }
+  .card { max-width: 560px; margin: 0 auto; background: #fff; border-radius: 16px; padding: 28px; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+  h1 { font-size: 1.3rem; color: var(--teal); margin: 0 0 4px; }
+  p.sub { color: #666; margin-top: 0; margin-bottom: 24px; font-size: .9rem; }
+  label { display: block; font-size: .8rem; font-weight: 600; margin: 14px 0 6px; color: var(--teal); }
+  input, textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: .95rem; font-family: inherit; }
+  textarea { min-height: 60px; resize: vertical; }
+  button { margin-top: 20px; width: 100%; padding: 12px; border: none; border-radius: 8px; background: var(--teal); color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer; }
+  button:hover { opacity: .92; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #result { margin-top: 18px; padding: 12px 14px; border-radius: 8px; font-size: .85rem; white-space: pre-wrap; word-break: break-word; display: none; }
+  #result.ok { display: block; background: #e6f4ea; color: #1e6b34; }
+  #result.err { display: block; background: #fdecea; color: #a3231a; }
+  .hint { font-size: .75rem; color: #888; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🌴 Sasacation — Push Notification Test</h1>
+    <p class="sub">Halaman ini memanggil <code>POST /api/notifications/test</code> untuk mengirim push notification sungguhan lewat Firebase Cloud Messaging. Gunakan untuk memverifikasi setup Firebase tanpa perlu build aplikasi Flutter.</p>
+
+    <label>JWT Token (login dulu lewat /api/auth/login atau /api/auth/firebase)</label>
+    <textarea id="jwt" placeholder="Bearer token dari response login (tanpa kata 'Bearer')"></textarea>
+    <p class="hint">Dipakai untuk otorisasi. Kalau field FCM token di bawah dikosongkan, server akan pakai token yang sudah ter-register untuk akun ini.</p>
+
+    <label>FCM Device Token (opsional)</label>
+    <textarea id="fcmToken" placeholder="Kosongkan untuk pakai token yang sudah diregister lewat app"></textarea>
+
+    <label>Judul</label>
+    <input id="title" value="Test Notifikasi Sasacation" />
+
+    <label>Isi Pesan</label>
+    <input id="body" value="Ini pesan test push notification dari Sasacation 🌴" />
+
+    <button id="sendBtn">Kirim Push Notification</button>
+
+    <div id="result"></div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  $('sendBtn').addEventListener('click', async () => {
+    const jwt = $('jwt').value.trim();
+    const token = $('fcmToken').value.trim();
+    const title = $('title').value.trim();
+    const body = $('body').value.trim();
+    const resultEl = $('result');
+    const btn = $('sendBtn');
+
+    resultEl.className = '';
+    resultEl.style.display = 'none';
+
+    if (!jwt) {
+      resultEl.className = 'err';
+      resultEl.textContent = 'JWT token wajib diisi. Login dulu lewat POST /api/auth/login untuk mendapatkannya.';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Mengirim...';
+
+    try {
+      const res = await fetch('/api/notifications/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({ token: token || undefined, title, body }),
+      });
+      const data = await res.json();
+      resultEl.className = res.ok ? 'ok' : 'err';
+      resultEl.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      resultEl.className = 'err';
+      resultEl.textContent = `Gagal menghubungi server: ${err.message}`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Kirim Push Notification';
+    }
+  });
+</script>
+</body>
+</html>

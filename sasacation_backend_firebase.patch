@@ -1,0 +1,2959 @@
+diff --git a/.env.example b/.env.example
+index c7b88e9..fa07b5c 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,3 +1,28 @@
++# ── Server ────────────────────────────────────────────────────────────────
++PORT=5001
++NODE_ENV=development
++
++# ── Database (WAJIB) ─────────────────────────────────────────────────────
++# Contoh untuk DBngin/PostgreSQL lokal:
++DATABASE_URL=postgresql://postgres@localhost:5432/sasacation
++
++# ── JWT (WAJIB) ───────────────────────────────────────────────────────────
+ JWT_SECRET=supersecret123
++JWT_EXPIRES_IN=7d
++
++# ── Ollama (AI & RAG) ─────────────────────────────────────────────────────
+ OLLAMA_BASE_URL=http://localhost:11434
+-OLLAMA_MODEL=qwen2.5:7brs
+\ No newline at end of file
++OLLAMA_MODEL=llama3.1:latest
++OLLAMA_EMBED_MODEL=nomic-embed-text
++
++# ── Firebase Admin SDK (Auth + Push Notification) ───────────────────────
++# Ambil dari Firebase Console -> Project Settings -> Service Accounts ->
++# Generate New Private Key. Simpan file JSON-nya di luar folder yang
++# ter-commit ke git, lalu isi salah satu opsi di bawah:
++#
++# Opsi A (disarankan untuk lokal): path ke file JSON
++FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
++#
++# Opsi B (disarankan untuk deployment/CI): isi JSON credential langsung
++# sebagai satu baris string (escape newline di private_key dengan \n)
++# FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...", ...}
+diff --git a/.gitignore b/.gitignore
+index 2e8157a..27829ad 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,3 +1,4 @@
+ node_modules/
+ .env
+ *.log
++firebase-service-account.json
+diff --git a/package-lock.json b/package-lock.json
+index 2849b9b..3bad123 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -12,6 +12,7 @@
+         "cors": "^2.8.5",
+         "dotenv": "^16.4.5",
+         "express": "^4.18.2",
++        "firebase-admin": "^12.7.0",
+         "jsonwebtoken": "^9.0.2",
+         "pg": "^8.12.0",
+         "uuid": "^9.0.0"
+@@ -23,6 +24,421 @@
+         "node": ">=18.0.0"
+       }
+     },
++    "node_modules/@fastify/busboy": {
++      "version": "3.2.0",
++      "resolved": "https://registry.npmjs.org/@fastify/busboy/-/busboy-3.2.0.tgz",
++      "integrity": "sha512-m9FVDXU3GT2ITSe0UaMA5rU3QkfC/UXtCU8y0gSN/GugTqtVldOBWIB5V6V3sbmenVZUIpU6f+mPEO2+m5iTaA==",
++      "license": "MIT"
++    },
++    "node_modules/@firebase/app-check-interop-types": {
++      "version": "0.3.2",
++      "resolved": "https://registry.npmjs.org/@firebase/app-check-interop-types/-/app-check-interop-types-0.3.2.tgz",
++      "integrity": "sha512-LMs47Vinv2HBMZi49C09dJxp0QT5LwDzFaVGf/+ITHe3BlIhUiLNttkATSXplc89A2lAaeTqjgqVkiRfUGyQiQ==",
++      "license": "Apache-2.0"
++    },
++    "node_modules/@firebase/app-types": {
++      "version": "0.9.2",
++      "resolved": "https://registry.npmjs.org/@firebase/app-types/-/app-types-0.9.2.tgz",
++      "integrity": "sha512-oMEZ1TDlBz479lmABwWsWjzHwheQKiAgnuKxE0pz0IXCVx7/rtlkx1fQ6GfgK24WCrxDKMplZrT50Kh04iMbXQ==",
++      "license": "Apache-2.0"
++    },
++    "node_modules/@firebase/auth-interop-types": {
++      "version": "0.2.3",
++      "resolved": "https://registry.npmjs.org/@firebase/auth-interop-types/-/auth-interop-types-0.2.3.tgz",
++      "integrity": "sha512-Fc9wuJGgxoxQeavybiuwgyi+0rssr76b+nHpj+eGhXFYAdudMWyfBHvFL/I5fEHniUM/UQdFzi9VXJK2iZF7FQ==",
++      "license": "Apache-2.0"
++    },
++    "node_modules/@firebase/component": {
++      "version": "0.6.9",
++      "resolved": "https://registry.npmjs.org/@firebase/component/-/component-0.6.9.tgz",
++      "integrity": "sha512-gm8EUEJE/fEac86AvHn8Z/QW8BvR56TBw3hMW0O838J/1mThYQXAIQBgUv75EqlCZfdawpWLrKt1uXvp9ciK3Q==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@firebase/util": "1.10.0",
++        "tslib": "^2.1.0"
++      }
++    },
++    "node_modules/@firebase/database": {
++      "version": "1.0.8",
++      "resolved": "https://registry.npmjs.org/@firebase/database/-/database-1.0.8.tgz",
++      "integrity": "sha512-dzXALZeBI1U5TXt6619cv0+tgEhJiwlUtQ55WNZY7vGAjv7Q1QioV969iYwt1AQQ0ovHnEW0YW9TiBfefLvErg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@firebase/app-check-interop-types": "0.3.2",
++        "@firebase/auth-interop-types": "0.2.3",
++        "@firebase/component": "0.6.9",
++        "@firebase/logger": "0.4.2",
++        "@firebase/util": "1.10.0",
++        "faye-websocket": "0.11.4",
++        "tslib": "^2.1.0"
++      }
++    },
++    "node_modules/@firebase/database-compat": {
++      "version": "1.0.8",
++      "resolved": "https://registry.npmjs.org/@firebase/database-compat/-/database-compat-1.0.8.tgz",
++      "integrity": "sha512-OpeWZoPE3sGIRPBKYnW9wLad25RaWbGyk7fFQe4xnJQKRzlynWeFBSRRAoLE2Old01WXwskUiucNqUUVlFsceg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@firebase/component": "0.6.9",
++        "@firebase/database": "1.0.8",
++        "@firebase/database-types": "1.0.5",
++        "@firebase/logger": "0.4.2",
++        "@firebase/util": "1.10.0",
++        "tslib": "^2.1.0"
++      }
++    },
++    "node_modules/@firebase/database-types": {
++      "version": "1.0.5",
++      "resolved": "https://registry.npmjs.org/@firebase/database-types/-/database-types-1.0.5.tgz",
++      "integrity": "sha512-fTlqCNwFYyq/C6W7AJ5OCuq5CeZuBEsEwptnVxlNPkWCo5cTTyukzAHRSO/jaQcItz33FfYrrFk1SJofcu2AaQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@firebase/app-types": "0.9.2",
++        "@firebase/util": "1.10.0"
++      }
++    },
++    "node_modules/@firebase/logger": {
++      "version": "0.4.2",
++      "resolved": "https://registry.npmjs.org/@firebase/logger/-/logger-0.4.2.tgz",
++      "integrity": "sha512-Q1VuA5M1Gjqrwom6I6NUU4lQXdo9IAQieXlujeHZWvRt1b7qQ0KwBaNAjgxG27jgF9/mUwsNmO8ptBCGVYhB0A==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "tslib": "^2.1.0"
++      }
++    },
++    "node_modules/@firebase/util": {
++      "version": "1.10.0",
++      "resolved": "https://registry.npmjs.org/@firebase/util/-/util-1.10.0.tgz",
++      "integrity": "sha512-xKtx4A668icQqoANRxyDLBLz51TAbDP9KRfpbKGxiCAW346d0BeJe5vN6/hKxxmWwnZ0mautyv39JxviwwQMOQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "tslib": "^2.1.0"
++      }
++    },
++    "node_modules/@google-cloud/firestore": {
++      "version": "7.11.6",
++      "resolved": "https://registry.npmjs.org/@google-cloud/firestore/-/firestore-7.11.6.tgz",
++      "integrity": "sha512-EW/O8ktzwLfyWBOsNuhRoMi8lrC3clHM5LVFhGvO1HCsLozCOOXRAlHrYBoE6HL42Sc8yYMuCb2XqcnJ4OOEpw==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "@opentelemetry/api": "^1.3.0",
++        "fast-deep-equal": "^3.1.1",
++        "functional-red-black-tree": "^1.0.1",
++        "google-gax": "^4.3.3",
++        "protobufjs": "^7.2.6"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
++    "node_modules/@google-cloud/paginator": {
++      "version": "5.0.2",
++      "resolved": "https://registry.npmjs.org/@google-cloud/paginator/-/paginator-5.0.2.tgz",
++      "integrity": "sha512-DJS3s0OVH4zFDB1PzjxAsHqJT6sKVbRwwML0ZBP9PbU7Yebtu/7SWMRzvO2J3nUi9pRNITCfu4LJeooM2w4pjg==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "arrify": "^2.0.0",
++        "extend": "^3.0.2"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
++    "node_modules/@google-cloud/projectify": {
++      "version": "4.0.0",
++      "resolved": "https://registry.npmjs.org/@google-cloud/projectify/-/projectify-4.0.0.tgz",
++      "integrity": "sha512-MmaX6HeSvyPbWGwFq7mXdo0uQZLGBYCwziiLIGq5JVX+/bdI3SAq6bP98trV5eTWfLuvsMcIC1YJOF2vfteLFA==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
++    "node_modules/@google-cloud/promisify": {
++      "version": "4.0.0",
++      "resolved": "https://registry.npmjs.org/@google-cloud/promisify/-/promisify-4.0.0.tgz",
++      "integrity": "sha512-Orxzlfb9c67A15cq2JQEyVc7wEsmFBmHjZWZYQMUyJ1qivXyMwdyNOs9odi79hze+2zqdTtu1E19IM/FtqZ10g==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/@google-cloud/storage": {
++      "version": "7.21.0",
++      "resolved": "https://registry.npmjs.org/@google-cloud/storage/-/storage-7.21.0.tgz",
++      "integrity": "sha512-l+IFTkd+6Y5LoAuXyYCKNAKtw/Ci+rAMqgdTB1jv4iZiLhw0rtq+0qjIRbBizXkNzEFmXiXUW0H7sZQQvk1ffA==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "@google-cloud/paginator": "^5.0.0",
++        "@google-cloud/projectify": "^4.0.0",
++        "@google-cloud/promisify": "<4.1.0",
++        "abort-controller": "^3.0.0",
++        "async-retry": "^1.3.3",
++        "duplexify": "^4.1.3",
++        "fast-xml-parser": "^5.3.4",
++        "gaxios": "^6.0.2",
++        "google-auth-library": "^9.6.3",
++        "html-entities": "^2.5.2",
++        "mime": "^3.0.0",
++        "p-limit": "^3.0.1",
++        "retry-request": "^7.0.0",
++        "teeny-request": "^9.0.0"
++      },
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/@google-cloud/storage/node_modules/mime": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/mime/-/mime-3.0.0.tgz",
++      "integrity": "sha512-jSCU7/VB1loIWBZe14aEYHU/+1UMEHoaO7qxCOVJOw9GgH72VAWppxNcjU+x9a2k3GSIBXNKxXQFqRvvZ7vr3A==",
++      "license": "MIT",
++      "optional": true,
++      "bin": {
++        "mime": "cli.js"
++      },
++      "engines": {
++        "node": ">=10.0.0"
++      }
++    },
++    "node_modules/@grpc/grpc-js": {
++      "version": "1.14.4",
++      "resolved": "https://registry.npmjs.org/@grpc/grpc-js/-/grpc-js-1.14.4.tgz",
++      "integrity": "sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "@grpc/proto-loader": "^0.8.0",
++        "@js-sdsl/ordered-map": "^4.4.2"
++      },
++      "engines": {
++        "node": ">=12.10.0"
++      }
++    },
++    "node_modules/@grpc/grpc-js/node_modules/@grpc/proto-loader": {
++      "version": "0.8.1",
++      "resolved": "https://registry.npmjs.org/@grpc/proto-loader/-/proto-loader-0.8.1.tgz",
++      "integrity": "sha512-wtF6h+DY6M3YaDBPAmvuuA6jV8Sif9MjtOI5euKFWRgCDl5PeDpPsHR9u2l6St5ceY8AZgoNDww5+HvEsXFsGg==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "lodash.camelcase": "^4.3.0",
++        "long": "^5.0.0",
++        "protobufjs": "^7.5.5",
++        "yargs": "^17.7.2"
++      },
++      "bin": {
++        "proto-loader-gen-types": "build/bin/proto-loader-gen-types.js"
++      },
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/@grpc/proto-loader": {
++      "version": "0.7.15",
++      "resolved": "https://registry.npmjs.org/@grpc/proto-loader/-/proto-loader-0.7.15.tgz",
++      "integrity": "sha512-tMXdRCfYVixjuFK+Hk0Q1s38gV9zDiDJfWL3h1rv4Qc39oILCu1TRTDt7+fGUI8K4G1Fj125Hx/ru3azECWTyQ==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "lodash.camelcase": "^4.3.0",
++        "long": "^5.0.0",
++        "protobufjs": "^7.2.5",
++        "yargs": "^17.7.2"
++      },
++      "bin": {
++        "proto-loader-gen-types": "build/bin/proto-loader-gen-types.js"
++      },
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/@js-sdsl/ordered-map": {
++      "version": "4.4.2",
++      "resolved": "https://registry.npmjs.org/@js-sdsl/ordered-map/-/ordered-map-4.4.2.tgz",
++      "integrity": "sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw==",
++      "license": "MIT",
++      "optional": true,
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/js-sdsl"
++      }
++    },
++    "node_modules/@nodable/entities": {
++      "version": "2.2.0",
++      "resolved": "https://registry.npmjs.org/@nodable/entities/-/entities-2.2.0.tgz",
++      "integrity": "sha512-9uGyhaQavEUMC8AIddIjau4NsnsXhou+j5sBAGojCM1oxmQpVKTWR/9JxABD6UAv12vpIms55fPZKFQEhG6uBg==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/nodable"
++        }
++      ],
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/@opentelemetry/api": {
++      "version": "1.9.1",
++      "resolved": "https://registry.npmjs.org/@opentelemetry/api/-/api-1.9.1.tgz",
++      "integrity": "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "engines": {
++        "node": ">=8.0.0"
++      }
++    },
++    "node_modules/@protobufjs/aspromise": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/aspromise/-/aspromise-1.1.2.tgz",
++      "integrity": "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==",
++      "license": "BSD-3-Clause",
++      "optional": true
++    },
++    "node_modules/@protobufjs/base64": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/base64/-/base64-1.1.2.tgz",
++      "integrity": "sha512-AZkcAA5vnN/v4PDqKyMR5lx7hZttPDgClv83E//FMNhR2TMcLUhfRUBHCmSl0oi9zMgDDqRUJkSxO3wm85+XLg==",
++      "license": "BSD-3-Clause",
++      "optional": true
++    },
++    "node_modules/@protobufjs/codegen": {
++      "version": "2.0.5",
++      "resolved": "https://registry.npmjs.org/@protobufjs/codegen/-/codegen-2.0.5.tgz",
++      "integrity": "sha512-zgXFLzW3Ap33e6d0Wlj4MGIm6Ce8O89n/apUaGNB/jx+hw+ruWEp7EwGUshdLKVRCxZW12fp9r40E1mQrf/34g==",
++      "license": "BSD-3-Clause",
++      "optional": true
++    },
++    "node_modules/@protobufjs/eventemitter": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/@protobufjs/eventemitter/-/eventemitter-1.1.1.tgz",
++      "integrity": "sha512-vW1GmwMZNnL+gMRaovlh9yZX74kc+TTU3FObkkurpMaRtBfLP3ldjS9KQWlwZgraRE0+dheEEoAxdzcJQ8eXZg==",
++      "license": "BSD-3-Clause",
++      "optional": true
++    },
++    "node_modules/@protobufjs/fetch": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/@protobufjs/fetch/-/fetch-1.1.1.tgz",
++      "integrity": "sha512-GpptLrs57adMSuHi3VNj0mAF8dwh36LMaYF6XyJ6JMWlVsc+t42tm1HSEDmOs3A8fC9yyeisgLhsTVQokOZ0zw==",
++      "license": "BSD-3-Clause",
++      "optional": true,
++      "dependencies": {
++        "@protobufjs/aspromise": "^1.1.1"
++      }
++    },
++    "node_modules/@protobufjs/float": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/float/-/float-1.0.2.tgz",
++      "integrity": "sha512-Ddb+kVXlXst9d+R9PfTIxh1EdNkgoRe5tOX6t01f1lYWOvJnSPDBlG241QLzcyPdoNTsblLUdujGSE4RzrTZGQ==",
++      "license": "BSD-3-Clause",
++      "optional": true
++    },
++    "node_modules/@protobufjs/path": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/path/-/path-1.1.2.tgz",
++      "integrity": "sha512-6JOcJ5Tm08dOHAbdR3GrvP+yUUfkjG5ePsHYczMFLq3ZmMkAD98cDgcT2iA1lJ9NVwFd4tH/iSSoe44YWkltEA==",
++      "license": "BSD-3-Clause",
++      "optional": true
++    },
++    "node_modules/@protobufjs/pool": {
++      "version": "1.1.0",
++      "resolved": "https://registry.npmjs.org/@protobufjs/pool/-/pool-1.1.0.tgz",
++      "integrity": "sha512-0kELaGSIDBKvcgS4zkjz1PeddatrjYcmMWOlAuAPwAeccUrPHdUqo/J6LiymHHEiJT5NrF1UVwxY14f+fy4WQw==",
++      "license": "BSD-3-Clause",
++      "optional": true
++    },
++    "node_modules/@protobufjs/utf8": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/utf8/-/utf8-1.1.2.tgz",
++      "integrity": "sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug==",
++      "license": "BSD-3-Clause",
++      "optional": true
++    },
++    "node_modules/@tootallnate/once": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/@tootallnate/once/-/once-2.0.1.tgz",
++      "integrity": "sha512-HqmEUIGRJ5fSXchkVgR5F7qn48bDBzv0kWj/Kfu5e6uci4UlEeng4331LnBkWffb++Ei3FOVLxo8JJWMFBDMeQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@types/caseless": {
++      "version": "0.12.5",
++      "resolved": "https://registry.npmjs.org/@types/caseless/-/caseless-0.12.5.tgz",
++      "integrity": "sha512-hWtVTC2q7hc7xZ/RLbxapMvDMgUnDvKvMOpKal4DrMyfGBUfB1oKaZlIRr6mJL+If3bAP6sV/QneGzF6tJjZDg==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/@types/jsonwebtoken": {
++      "version": "9.0.10",
++      "resolved": "https://registry.npmjs.org/@types/jsonwebtoken/-/jsonwebtoken-9.0.10.tgz",
++      "integrity": "sha512-asx5hIG9Qmf/1oStypjanR7iKTv0gXQ1Ov/jfrX6kS/EO0OFni8orbmGCn0672NHR3kXHwpAwR+B368ZGN/2rA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/ms": "*",
++        "@types/node": "*"
++      }
++    },
++    "node_modules/@types/long": {
++      "version": "4.0.2",
++      "resolved": "https://registry.npmjs.org/@types/long/-/long-4.0.2.tgz",
++      "integrity": "sha512-MqTGEo5bj5t157U6fA/BiDynNkn0YknVdh48CMPkTSpFTVmvao5UQmm7uEF6xBEo7qIMAlY/JSleYaE6VOdpaA==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/@types/ms": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/@types/ms/-/ms-2.1.0.tgz",
++      "integrity": "sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==",
++      "license": "MIT"
++    },
++    "node_modules/@types/node": {
++      "version": "22.20.0",
++      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.20.0.tgz",
++      "integrity": "sha512-QWlFW2wf3nTjC13/DqRnBpR4ZO36VJH/JVBkA/vcnmbTBNQIlnObqyqZE1tUR7+Ni23Lda8R1BxMfbXRpCUx5g==",
++      "license": "MIT",
++      "dependencies": {
++        "undici-types": "~6.21.0"
++      }
++    },
++    "node_modules/@types/request": {
++      "version": "2.48.13",
++      "resolved": "https://registry.npmjs.org/@types/request/-/request-2.48.13.tgz",
++      "integrity": "sha512-FGJ6udDNUCjd19pp0Q3iTiDkwhYup7J8hpMW9c4k53NrccQFFWKRho6hvtPPEhnXWKvukfwAlB6DbDz4yhH5Gg==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@types/caseless": "*",
++        "@types/node": "*",
++        "@types/tough-cookie": "*",
++        "form-data": "^2.5.5"
++      }
++    },
++    "node_modules/@types/tough-cookie": {
++      "version": "4.0.5",
++      "resolved": "https://registry.npmjs.org/@types/tough-cookie/-/tough-cookie-4.0.5.tgz",
++      "integrity": "sha512-/Ad8+nIOV7Rl++6f1BdKxFSMgmoqEoYbHRpPcx3JEfv8VRsQe9Z4mCXeJBzxs7mbHY/XOZZuXlRNfhpVPbs6ZA==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/abort-controller": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/abort-controller/-/abort-controller-3.0.0.tgz",
++      "integrity": "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "event-target-shim": "^5.0.0"
++      },
++      "engines": {
++        "node": ">=6.5"
++      }
++    },
+     "node_modules/accepts": {
+       "version": "1.3.8",
+       "resolved": "https://registry.npmjs.org/accepts/-/accepts-1.3.8.tgz",
+@@ -36,6 +452,42 @@
+         "node": ">= 0.6"
+       }
+     },
++    "node_modules/agent-base": {
++      "version": "7.1.4",
++      "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz",
++      "integrity": "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">= 14"
++      }
++    },
++    "node_modules/ansi-regex": {
++      "version": "5.0.1",
++      "resolved": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-5.0.1.tgz",
++      "integrity": "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/ansi-styles": {
++      "version": "4.3.0",
++      "resolved": "https://registry.npmjs.org/ansi-styles/-/ansi-styles-4.3.0.tgz",
++      "integrity": "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "color-convert": "^2.0.1"
++      },
++      "engines": {
++        "node": ">=8"
++      },
++      "funding": {
++        "url": "https://github.com/chalk/ansi-styles?sponsor=1"
++      }
++    },
+     "node_modules/anymatch": {
+       "version": "3.1.3",
+       "resolved": "https://registry.npmjs.org/anymatch/-/anymatch-3.1.3.tgz",
+@@ -50,12 +502,52 @@
+         "node": ">= 8"
+       }
+     },
++    "node_modules/anynum": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/anynum/-/anynum-1.0.1.tgz",
++      "integrity": "sha512-N6//FLET/tXYNM/F6ABca1oH6fWB+KlTt909Le28WMDBk8oaT4vY17DCrwg2MvmuqUKt3Ni4N5dGJ/EoBgcO6A==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/NaturalIntelligence"
++        }
++      ],
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/array-flatten": {
+       "version": "1.1.1",
+       "resolved": "https://registry.npmjs.org/array-flatten/-/array-flatten-1.1.1.tgz",
+       "integrity": "sha512-PCVAQswWemu6UdxsDFFX/+gVeYqKAod3D3UVm91jHwynguOwAvYPhx8nNlM++NqRcK6CxxpUafjmhIdKiHibqg==",
+       "license": "MIT"
+     },
++    "node_modules/arrify": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/arrify/-/arrify-2.0.1.tgz",
++      "integrity": "sha512-3duEwti880xqi4eAMN8AyR4a0ByT90zoYdLlevfrvU43vb0YZwZVfxOgxWrLXXXpyugL0hNZc9G6BiB5B3nUug==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/async-retry": {
++      "version": "1.3.3",
++      "resolved": "https://registry.npmjs.org/async-retry/-/async-retry-1.3.3.tgz",
++      "integrity": "sha512-wfr/jstw9xNi/0teMHrRW7dsz3Lt5ARhYNZ2ewpadnhaIp5mbALhOAP+EAdsC7t4Z6wqsDVv9+W6gm1Dk9mEyw==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "retry": "0.13.1"
++      }
++    },
++    "node_modules/asynckit": {
++      "version": "0.4.0",
++      "resolved": "https://registry.npmjs.org/asynckit/-/asynckit-0.4.0.tgz",
++      "integrity": "sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/balanced-match": {
+       "version": "4.0.4",
+       "resolved": "https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.4.tgz",
+@@ -66,12 +558,43 @@
+         "node": "18 || 20 || >=22"
+       }
+     },
++    "node_modules/base64-js": {
++      "version": "1.5.1",
++      "resolved": "https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz",
++      "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/bcryptjs": {
+       "version": "2.4.3",
+       "resolved": "https://registry.npmjs.org/bcryptjs/-/bcryptjs-2.4.3.tgz",
+       "integrity": "sha512-V/Hy/X9Vt7f3BbPJEi8BdVFMByHi+jNXrYkW3huaybV/kQ0KJg0Y6PkEMbn+zeT+i+SiKZ/HMqJGIIt4LZDqNQ==",
+       "license": "MIT"
+     },
++    "node_modules/bignumber.js": {
++      "version": "9.3.1",
++      "resolved": "https://registry.npmjs.org/bignumber.js/-/bignumber.js-9.3.1.tgz",
++      "integrity": "sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": "*"
++      }
++    },
+     "node_modules/binary-extensions": {
+       "version": "2.3.0",
+       "resolved": "https://registry.npmjs.org/binary-extensions/-/binary-extensions-2.3.0.tgz",
+@@ -204,6 +727,54 @@
+         "fsevents": "~2.3.2"
+       }
+     },
++    "node_modules/cliui": {
++      "version": "8.0.1",
++      "resolved": "https://registry.npmjs.org/cliui/-/cliui-8.0.1.tgz",
++      "integrity": "sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==",
++      "license": "ISC",
++      "optional": true,
++      "dependencies": {
++        "string-width": "^4.2.0",
++        "strip-ansi": "^6.0.1",
++        "wrap-ansi": "^7.0.0"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/color-convert": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/color-convert/-/color-convert-2.0.1.tgz",
++      "integrity": "sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "color-name": "~1.1.4"
++      },
++      "engines": {
++        "node": ">=7.0.0"
++      }
++    },
++    "node_modules/color-name": {
++      "version": "1.1.4",
++      "resolved": "https://registry.npmjs.org/color-name/-/color-name-1.1.4.tgz",
++      "integrity": "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/combined-stream": {
++      "version": "1.0.8",
++      "resolved": "https://registry.npmjs.org/combined-stream/-/combined-stream-1.0.8.tgz",
++      "integrity": "sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "delayed-stream": "~1.0.0"
++      },
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
+     "node_modules/content-disposition": {
+       "version": "0.5.4",
+       "resolved": "https://registry.npmjs.org/content-disposition/-/content-disposition-0.5.4.tgz",
+@@ -266,6 +837,16 @@
+         "ms": "2.0.0"
+       }
+     },
++    "node_modules/delayed-stream": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/delayed-stream/-/delayed-stream-1.0.0.tgz",
++      "integrity": "sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=0.4.0"
++      }
++    },
+     "node_modules/depd": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/depd/-/depd-2.0.0.tgz",
+@@ -311,6 +892,19 @@
+         "node": ">= 0.4"
+       }
+     },
++    "node_modules/duplexify": {
++      "version": "4.1.3",
++      "resolved": "https://registry.npmjs.org/duplexify/-/duplexify-4.1.3.tgz",
++      "integrity": "sha512-M3BmBhwJRZsSx38lZyhE53Csddgzl5R7xGJNk7CVddZD6CcmwMCH8J+7AprIrQKH7TonKxaCjcv27Qmf+sQ+oA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "end-of-stream": "^1.4.1",
++        "inherits": "^2.0.3",
++        "readable-stream": "^3.1.1",
++        "stream-shift": "^1.0.2"
++      }
++    },
+     "node_modules/ecdsa-sig-formatter": {
+       "version": "1.0.11",
+       "resolved": "https://registry.npmjs.org/ecdsa-sig-formatter/-/ecdsa-sig-formatter-1.0.11.tgz",
+@@ -326,6 +920,13 @@
+       "integrity": "sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==",
+       "license": "MIT"
+     },
++    "node_modules/emoji-regex": {
++      "version": "8.0.0",
++      "resolved": "https://registry.npmjs.org/emoji-regex/-/emoji-regex-8.0.0.tgz",
++      "integrity": "sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/encodeurl": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/encodeurl/-/encodeurl-2.0.0.tgz",
+@@ -335,6 +936,16 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/end-of-stream": {
++      "version": "1.4.5",
++      "resolved": "https://registry.npmjs.org/end-of-stream/-/end-of-stream-1.4.5.tgz",
++      "integrity": "sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "once": "^1.4.0"
++      }
++    },
+     "node_modules/es-define-property": {
+       "version": "1.0.1",
+       "resolved": "https://registry.npmjs.org/es-define-property/-/es-define-property-1.0.1.tgz",
+@@ -365,6 +976,32 @@
+         "node": ">= 0.4"
+       }
+     },
++    "node_modules/es-set-tostringtag": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/es-set-tostringtag/-/es-set-tostringtag-2.1.0.tgz",
++      "integrity": "sha512-j6vWzfrGVfyXxge+O0x5sh6cvxAog0a/4Rdd2K36zCMV5eJ+/+tOAngRO8cODMNWbVRdVlmGZQL2YS3yR8bIUA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "es-errors": "^1.3.0",
++        "get-intrinsic": "^1.2.6",
++        "has-tostringtag": "^1.0.2",
++        "hasown": "^2.0.2"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/escalade": {
++      "version": "3.2.0",
++      "resolved": "https://registry.npmjs.org/escalade/-/escalade-3.2.0.tgz",
++      "integrity": "sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=6"
++      }
++    },
+     "node_modules/escape-html": {
+       "version": "1.0.3",
+       "resolved": "https://registry.npmjs.org/escape-html/-/escape-html-1.0.3.tgz",
+@@ -380,6 +1017,16 @@
+         "node": ">= 0.6"
+       }
+     },
++    "node_modules/event-target-shim": {
++      "version": "5.0.1",
++      "resolved": "https://registry.npmjs.org/event-target-shim/-/event-target-shim-5.0.1.tgz",
++      "integrity": "sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=6"
++      }
++    },
+     "node_modules/express": {
+       "version": "4.22.2",
+       "resolved": "https://registry.npmjs.org/express/-/express-4.22.2.tgz",
+@@ -426,6 +1073,82 @@
+         "url": "https://opencollective.com/express"
+       }
+     },
++    "node_modules/extend": {
++      "version": "3.0.2",
++      "resolved": "https://registry.npmjs.org/extend/-/extend-3.0.2.tgz",
++      "integrity": "sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/farmhash-modern": {
++      "version": "1.1.0",
++      "resolved": "https://registry.npmjs.org/farmhash-modern/-/farmhash-modern-1.1.0.tgz",
++      "integrity": "sha512-6ypT4XfgqJk/F3Yuv4SX26I3doUjt0GTG4a+JgWxXQpxXzTBq8fPUeGHfcYMMDPHJHm3yPOSjaeBwBGAHWXCdA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/fast-deep-equal": {
++      "version": "3.1.3",
++      "resolved": "https://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz",
++      "integrity": "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/fast-xml-builder": {
++      "version": "1.2.1",
++      "resolved": "https://registry.npmjs.org/fast-xml-builder/-/fast-xml-builder-1.2.1.tgz",
++      "integrity": "sha512-tPb5TTWfgfVx5BNSi2xV0eLr89POeXXn0dXIsCJ9m1narrWxeIyx6je9d7Rce/3NyXLbvuQmLkxq+RuxMWejvw==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/NaturalIntelligence"
++        }
++      ],
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "path-expression-matcher": "^1.5.0",
++        "xml-naming": "^0.1.0"
++      }
++    },
++    "node_modules/fast-xml-parser": {
++      "version": "5.9.3",
++      "resolved": "https://registry.npmjs.org/fast-xml-parser/-/fast-xml-parser-5.9.3.tgz",
++      "integrity": "sha512-brCNCeScma/kqa54J4PIDriSSSLssRkuYaUCpvHJulGc3HGI/xxKUCTDcYkAdqJsyb//ydpbxecjC3hB9+tb/g==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/NaturalIntelligence"
++        }
++      ],
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@nodable/entities": "^2.2.0",
++        "fast-xml-builder": "^1.2.0",
++        "is-unsafe": "^1.0.1",
++        "path-expression-matcher": "^1.5.0",
++        "strnum": "^2.4.1",
++        "xml-naming": "^0.1.0"
++      },
++      "bin": {
++        "fxparser": "src/cli/cli.js"
++      }
++    },
++    "node_modules/faye-websocket": {
++      "version": "0.11.4",
++      "resolved": "https://registry.npmjs.org/faye-websocket/-/faye-websocket-0.11.4.tgz",
++      "integrity": "sha512-CzbClwlXAuiRQAlUyfqPgvPoNKTckTPGfwZV4ZdAhVcP2lh9KUxJg2b5GkE7XbjKQ3YJnQ9z6D9ntLAlB+tP8g==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "websocket-driver": ">=0.5.1"
++      },
++      "engines": {
++        "node": ">=0.8.0"
++      }
++    },
+     "node_modules/fill-range": {
+       "version": "7.1.1",
+       "resolved": "https://registry.npmjs.org/fill-range/-/fill-range-7.1.1.tgz",
+@@ -439,22 +1162,78 @@
+         "node": ">=8"
+       }
+     },
+-    "node_modules/finalhandler": {
+-      "version": "1.3.2",
+-      "resolved": "https://registry.npmjs.org/finalhandler/-/finalhandler-1.3.2.tgz",
+-      "integrity": "sha512-aA4RyPcd3badbdABGDuTXCMTtOneUCAYH/gxoYRTZlIJdF0YPWuGqiAsIrhNnnqdXGswYk6dGujem4w80UJFhg==",
++    "node_modules/finalhandler": {
++      "version": "1.3.2",
++      "resolved": "https://registry.npmjs.org/finalhandler/-/finalhandler-1.3.2.tgz",
++      "integrity": "sha512-aA4RyPcd3badbdABGDuTXCMTtOneUCAYH/gxoYRTZlIJdF0YPWuGqiAsIrhNnnqdXGswYk6dGujem4w80UJFhg==",
++      "license": "MIT",
++      "dependencies": {
++        "debug": "2.6.9",
++        "encodeurl": "~2.0.0",
++        "escape-html": "~1.0.3",
++        "on-finished": "~2.4.1",
++        "parseurl": "~1.3.3",
++        "statuses": "~2.0.2",
++        "unpipe": "~1.0.0"
++      },
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/firebase-admin": {
++      "version": "12.7.0",
++      "resolved": "https://registry.npmjs.org/firebase-admin/-/firebase-admin-12.7.0.tgz",
++      "integrity": "sha512-raFIrOyTqREbyXsNkSHyciQLfv8AUZazehPaQS1lZBSCDYW74FYXU0nQZa3qHI4K+hawohlDbywZ4+qce9YNxA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@fastify/busboy": "^3.0.0",
++        "@firebase/database-compat": "1.0.8",
++        "@firebase/database-types": "1.0.5",
++        "@types/node": "^22.0.1",
++        "farmhash-modern": "^1.1.0",
++        "jsonwebtoken": "^9.0.0",
++        "jwks-rsa": "^3.1.0",
++        "node-forge": "^1.3.1",
++        "uuid": "^10.0.0"
++      },
++      "engines": {
++        "node": ">=14"
++      },
++      "optionalDependencies": {
++        "@google-cloud/firestore": "^7.7.0",
++        "@google-cloud/storage": "^7.7.0"
++      }
++    },
++    "node_modules/firebase-admin/node_modules/uuid": {
++      "version": "10.0.0",
++      "resolved": "https://registry.npmjs.org/uuid/-/uuid-10.0.0.tgz",
++      "integrity": "sha512-8XkAphELsDnEGrDxUOHB3RGvXz6TeuYSGEZBOjtTtPm2lwhGBjLgOzLHB63IUWfBpNucQjND6d3AOudO+H3RWQ==",
++      "deprecated": "uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).",
++      "funding": [
++        "https://github.com/sponsors/broofa",
++        "https://github.com/sponsors/ctavan"
++      ],
++      "license": "MIT",
++      "bin": {
++        "uuid": "dist/bin/uuid"
++      }
++    },
++    "node_modules/form-data": {
++      "version": "2.5.6",
++      "resolved": "https://registry.npmjs.org/form-data/-/form-data-2.5.6.tgz",
++      "integrity": "sha512-Ogz/E85h9tlfJzpI6TuFpGcHZFhLrb9Gw8wq9v40CxSCPnv7ahKr6Xgtkn0KYCDQJ8DNn5VoMO8EXr9V5PadyA==",
+       "license": "MIT",
++      "optional": true,
+       "dependencies": {
+-        "debug": "2.6.9",
+-        "encodeurl": "~2.0.0",
+-        "escape-html": "~1.0.3",
+-        "on-finished": "~2.4.1",
+-        "parseurl": "~1.3.3",
+-        "statuses": "~2.0.2",
+-        "unpipe": "~1.0.0"
++        "asynckit": "^0.4.0",
++        "combined-stream": "^1.0.8",
++        "es-set-tostringtag": "^2.1.0",
++        "hasown": "^2.0.4",
++        "mime-types": "^2.1.35",
++        "safe-buffer": "^5.2.1"
+       },
+       "engines": {
+-        "node": ">= 0.8"
++        "node": ">= 0.12"
+       }
+     },
+     "node_modules/forwarded": {
+@@ -499,6 +1278,55 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
++    "node_modules/functional-red-black-tree": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/functional-red-black-tree/-/functional-red-black-tree-1.0.1.tgz",
++      "integrity": "sha512-dsKNQNdj6xA3T+QlADDA7mOSlX0qiMINjn0cgr+eGHGsbSHzTabcIogz2+p/iqP1Xs6EP/sS2SbqH+brGTbq0g==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/gaxios": {
++      "version": "6.7.1",
++      "resolved": "https://registry.npmjs.org/gaxios/-/gaxios-6.7.1.tgz",
++      "integrity": "sha512-LDODD4TMYx7XXdpwxAVRAIAuB0bzv0s+ywFonY46k126qzQHT9ygyoa9tncmOiQmmDrik65UYsEkv3lbfqQ3yQ==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "extend": "^3.0.2",
++        "https-proxy-agent": "^7.0.1",
++        "is-stream": "^2.0.0",
++        "node-fetch": "^2.6.9",
++        "uuid": "^9.0.1"
++      },
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/gcp-metadata": {
++      "version": "6.1.1",
++      "resolved": "https://registry.npmjs.org/gcp-metadata/-/gcp-metadata-6.1.1.tgz",
++      "integrity": "sha512-a4tiq7E0/5fTjxPAaH4jpjkSv/uCaU2p5KC6HVGrvl0cDjA8iBZv4vv1gyzlmK0ZUKqwpOyQMKzZQe3lTit77A==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "gaxios": "^6.1.1",
++        "google-logging-utils": "^0.0.2",
++        "json-bigint": "^1.0.0"
++      },
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/get-caller-file": {
++      "version": "2.0.5",
++      "resolved": "https://registry.npmjs.org/get-caller-file/-/get-caller-file-2.0.5.tgz",
++      "integrity": "sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==",
++      "license": "ISC",
++      "optional": true,
++      "engines": {
++        "node": "6.* || 8.* || >= 10.*"
++      }
++    },
+     "node_modules/get-intrinsic": {
+       "version": "1.3.0",
+       "resolved": "https://registry.npmjs.org/get-intrinsic/-/get-intrinsic-1.3.0.tgz",
+@@ -549,6 +1377,58 @@
+         "node": ">= 6"
+       }
+     },
++    "node_modules/google-auth-library": {
++      "version": "9.15.1",
++      "resolved": "https://registry.npmjs.org/google-auth-library/-/google-auth-library-9.15.1.tgz",
++      "integrity": "sha512-Jb6Z0+nvECVz+2lzSMt9u98UsoakXxA2HGHMCxh+so3n90XgYWkq5dur19JAJV7ONiJY22yBTyJB1TSkvPq9Ng==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "base64-js": "^1.3.0",
++        "ecdsa-sig-formatter": "^1.0.11",
++        "gaxios": "^6.1.1",
++        "gcp-metadata": "^6.1.0",
++        "gtoken": "^7.0.0",
++        "jws": "^4.0.0"
++      },
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/google-gax": {
++      "version": "4.6.1",
++      "resolved": "https://registry.npmjs.org/google-gax/-/google-gax-4.6.1.tgz",
++      "integrity": "sha512-V6eky/xz2mcKfAd1Ioxyd6nmA61gao3n01C+YeuIwu3vzM9EDR6wcVzMSIbLMDXWeoi9SHYctXuKYC5uJUT3eQ==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "@grpc/grpc-js": "^1.10.9",
++        "@grpc/proto-loader": "^0.7.13",
++        "@types/long": "^4.0.0",
++        "abort-controller": "^3.0.0",
++        "duplexify": "^4.0.0",
++        "google-auth-library": "^9.3.0",
++        "node-fetch": "^2.7.0",
++        "object-hash": "^3.0.0",
++        "proto3-json-serializer": "^2.0.2",
++        "protobufjs": "^7.3.2",
++        "retry-request": "^7.0.0",
++        "uuid": "^9.0.1"
++      },
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/google-logging-utils": {
++      "version": "0.0.2",
++      "resolved": "https://registry.npmjs.org/google-logging-utils/-/google-logging-utils-0.0.2.tgz",
++      "integrity": "sha512-NEgUnEcBiP5HrPzufUkBzJOD/Sxsco3rLNo1F1TNf7ieU8ryUzBhqba8r756CjLX7rn3fHl6iLEwPYuqpoKgQQ==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "engines": {
++        "node": ">=14"
++      }
++    },
+     "node_modules/gopd": {
+       "version": "1.2.0",
+       "resolved": "https://registry.npmjs.org/gopd/-/gopd-1.2.0.tgz",
+@@ -561,6 +1441,20 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
++    "node_modules/gtoken": {
++      "version": "7.1.0",
++      "resolved": "https://registry.npmjs.org/gtoken/-/gtoken-7.1.0.tgz",
++      "integrity": "sha512-pCcEwRi+TKpMlxAQObHDQ56KawURgyAf6jtIY046fJ5tIv3zDe/LEIubckAO8fj6JnAxLdmWkUfNyulQ2iKdEw==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "gaxios": "^6.0.0",
++        "jws": "^4.0.0"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
+     "node_modules/has-flag": {
+       "version": "3.0.0",
+       "resolved": "https://registry.npmjs.org/has-flag/-/has-flag-3.0.0.tgz",
+@@ -583,6 +1477,22 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
++    "node_modules/has-tostringtag": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/has-tostringtag/-/has-tostringtag-1.0.2.tgz",
++      "integrity": "sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "has-symbols": "^1.0.3"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
+     "node_modules/hasown": {
+       "version": "2.0.4",
+       "resolved": "https://registry.npmjs.org/hasown/-/hasown-2.0.4.tgz",
+@@ -595,6 +1505,23 @@
+         "node": ">= 0.4"
+       }
+     },
++    "node_modules/html-entities": {
++      "version": "2.6.0",
++      "resolved": "https://registry.npmjs.org/html-entities/-/html-entities-2.6.0.tgz",
++      "integrity": "sha512-kig+rMn/QOVRvr7c86gQ8lWXq+Hkv6CbAH1hLu+RG338StTpE8Z0b44SDVaqVu7HGKf27frdmUYEs9hTUX/cLQ==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/mdevils"
++        },
++        {
++          "type": "patreon",
++          "url": "https://patreon.com/mdevils"
++        }
++      ],
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/http-errors": {
+       "version": "2.0.1",
+       "resolved": "https://registry.npmjs.org/http-errors/-/http-errors-2.0.1.tgz",
+@@ -615,6 +1542,104 @@
+         "url": "https://opencollective.com/express"
+       }
+     },
++    "node_modules/http-parser-js": {
++      "version": "0.5.10",
++      "resolved": "https://registry.npmjs.org/http-parser-js/-/http-parser-js-0.5.10.tgz",
++      "integrity": "sha512-Pysuw9XpUq5dVc/2SMHpuTY01RFl8fttgcyunjL7eEMhGM3cI4eOmiCycJDVCo/7O7ClfQD3SaI6ftDzqOXYMA==",
++      "license": "MIT"
++    },
++    "node_modules/http-proxy-agent": {
++      "version": "5.0.0",
++      "resolved": "https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-5.0.0.tgz",
++      "integrity": "sha512-n2hY8YdoRE1i7r6M0w9DIw5GgZN0G25P8zLCRQ8rjXtTU3vsNFBI/vWK/UIeE6g5MUUz6avwAPXmL6Fy9D/90w==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@tootallnate/once": "2",
++        "agent-base": "6",
++        "debug": "4"
++      },
++      "engines": {
++        "node": ">= 6"
++      }
++    },
++    "node_modules/http-proxy-agent/node_modules/agent-base": {
++      "version": "6.0.2",
++      "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-6.0.2.tgz",
++      "integrity": "sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "debug": "4"
++      },
++      "engines": {
++        "node": ">= 6.0.0"
++      }
++    },
++    "node_modules/http-proxy-agent/node_modules/debug": {
++      "version": "4.4.3",
++      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
++      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "ms": "^2.1.3"
++      },
++      "engines": {
++        "node": ">=6.0"
++      },
++      "peerDependenciesMeta": {
++        "supports-color": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/http-proxy-agent/node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/https-proxy-agent": {
++      "version": "7.0.6",
++      "resolved": "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz",
++      "integrity": "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "agent-base": "^7.1.2",
++        "debug": "4"
++      },
++      "engines": {
++        "node": ">= 14"
++      }
++    },
++    "node_modules/https-proxy-agent/node_modules/debug": {
++      "version": "4.4.3",
++      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
++      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "ms": "^2.1.3"
++      },
++      "engines": {
++        "node": ">=6.0"
++      },
++      "peerDependenciesMeta": {
++        "supports-color": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/https-proxy-agent/node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/iconv-lite": {
+       "version": "0.4.24",
+       "resolved": "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.4.24.tgz",
+@@ -672,6 +1697,16 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/is-fullwidth-code-point": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/is-fullwidth-code-point/-/is-fullwidth-code-point-3.0.0.tgz",
++      "integrity": "sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=8"
++      }
++    },
+     "node_modules/is-glob": {
+       "version": "4.0.3",
+       "resolved": "https://registry.npmjs.org/is-glob/-/is-glob-4.0.3.tgz",
+@@ -695,6 +1730,51 @@
+         "node": ">=0.12.0"
+       }
+     },
++    "node_modules/is-stream": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/is-stream/-/is-stream-2.0.1.tgz",
++      "integrity": "sha512-hFoiJiTl63nn+kstHGBtewWSKnQLpyb155KHheA1l39uvtO9nWIop1p3udqPcUd/xbF1VLMO4n7OI6p7RbngDg==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=8"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
++    "node_modules/is-unsafe": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/is-unsafe/-/is-unsafe-1.0.1.tgz",
++      "integrity": "sha512-CLK2+VdgERgD96EYm5lUQssZYlRg2tkZnbsxZoacmSiRxiFJ4Nk4SzjCl+Ur+v3kXIY9dTIdb3IH22y1mZ56LA==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/NaturalIntelligence"
++        }
++      ],
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/jose": {
++      "version": "4.15.9",
++      "resolved": "https://registry.npmjs.org/jose/-/jose-4.15.9.tgz",
++      "integrity": "sha512-1vUQX+IdDMVPj4k8kOxgUqlcK518yluMuGZwqlr44FS1ppZB/5GWh4rZG89erpOBOJjU/OBsnCVFfapsRz6nEA==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/panva"
++      }
++    },
++    "node_modules/json-bigint": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/json-bigint/-/json-bigint-1.0.0.tgz",
++      "integrity": "sha512-SiPv/8VpZuWbvLSMtTDU8hEfrZWg/mH/nV/b4o0CYbSxu1UIQPLdwKOCIyLQX+VIPO5vrLX3i8qtqFyhdPSUSQ==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "bignumber.js": "^9.0.0"
++      }
++    },
+     "node_modules/jsonwebtoken": {
+       "version": "9.0.3",
+       "resolved": "https://registry.npmjs.org/jsonwebtoken/-/jsonwebtoken-9.0.3.tgz",
+@@ -734,6 +1814,45 @@
+         "safe-buffer": "^5.0.1"
+       }
+     },
++    "node_modules/jwks-rsa": {
++      "version": "3.2.2",
++      "resolved": "https://registry.npmjs.org/jwks-rsa/-/jwks-rsa-3.2.2.tgz",
++      "integrity": "sha512-BqTyEDV+lS8F2trk3A+qJnxV5Q9EqKCBJOPti3W97r7qTympCZjb7h2X6f2kc+0K3rsSTY1/6YG2eaXKoj497w==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/jsonwebtoken": "^9.0.4",
++        "debug": "^4.3.4",
++        "jose": "^4.15.4",
++        "limiter": "^1.1.5",
++        "lru-memoizer": "^2.2.0"
++      },
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/jwks-rsa/node_modules/debug": {
++      "version": "4.4.3",
++      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
++      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
++      "license": "MIT",
++      "dependencies": {
++        "ms": "^2.1.3"
++      },
++      "engines": {
++        "node": ">=6.0"
++      },
++      "peerDependenciesMeta": {
++        "supports-color": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/jwks-rsa/node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT"
++    },
+     "node_modules/jws": {
+       "version": "4.0.1",
+       "resolved": "https://registry.npmjs.org/jws/-/jws-4.0.1.tgz",
+@@ -744,6 +1863,24 @@
+         "safe-buffer": "^5.0.1"
+       }
+     },
++    "node_modules/limiter": {
++      "version": "1.1.5",
++      "resolved": "https://registry.npmjs.org/limiter/-/limiter-1.1.5.tgz",
++      "integrity": "sha512-FWWMIEOxz3GwUI4Ts/IvgVy6LPvoMPgjMdQ185nN6psJyBJ4yOpzqm695/h5umdLJg2vW3GR5iG11MAkR2AzJA=="
++    },
++    "node_modules/lodash.camelcase": {
++      "version": "4.3.0",
++      "resolved": "https://registry.npmjs.org/lodash.camelcase/-/lodash.camelcase-4.3.0.tgz",
++      "integrity": "sha512-TwuEnCnxbc3rAvhf/LbG7tJUDzhqXyFnv3dtzLOPgCG/hODL7WFnsbwktkD7yUV0RrreP/l1PALq/YSg6VvjlA==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/lodash.clonedeep": {
++      "version": "4.5.0",
++      "resolved": "https://registry.npmjs.org/lodash.clonedeep/-/lodash.clonedeep-4.5.0.tgz",
++      "integrity": "sha512-H5ZhCF25riFd9uB5UCkVKo61m3S/xZk1x4wA6yp/L3RFP6Z/eHH1ymQcGLo7J3GMPfm0V/7m1tryHuGVxpqEBQ==",
++      "license": "MIT"
++    },
+     "node_modules/lodash.includes": {
+       "version": "4.3.0",
+       "resolved": "https://registry.npmjs.org/lodash.includes/-/lodash.includes-4.3.0.tgz",
+@@ -786,6 +1923,35 @@
+       "integrity": "sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==",
+       "license": "MIT"
+     },
++    "node_modules/long": {
++      "version": "5.3.2",
++      "resolved": "https://registry.npmjs.org/long/-/long-5.3.2.tgz",
++      "integrity": "sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==",
++      "license": "Apache-2.0",
++      "optional": true
++    },
++    "node_modules/lru-cache": {
++      "version": "6.0.0",
++      "resolved": "https://registry.npmjs.org/lru-cache/-/lru-cache-6.0.0.tgz",
++      "integrity": "sha512-Jo6dJ04CmSjuznwJSS3pUeWmd/H0ffTlkXXgwZi+eq1UCmqQwCh+eLsYOYCwY991i2Fah4h1BEMCx4qThGbsiA==",
++      "license": "ISC",
++      "dependencies": {
++        "yallist": "^4.0.0"
++      },
++      "engines": {
++        "node": ">=10"
++      }
++    },
++    "node_modules/lru-memoizer": {
++      "version": "2.3.0",
++      "resolved": "https://registry.npmjs.org/lru-memoizer/-/lru-memoizer-2.3.0.tgz",
++      "integrity": "sha512-GXn7gyHAMhO13WSKrIiNfztwxodVsP8IoZ3XfrJV4yH2x0/OeTO/FIaAHTY5YekdGgW94njfuKmyyt1E0mR6Ug==",
++      "license": "MIT",
++      "dependencies": {
++        "lodash.clonedeep": "^4.5.0",
++        "lru-cache": "6.0.0"
++      }
++    },
+     "node_modules/math-intrinsics": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/math-intrinsics/-/math-intrinsics-1.1.0.tgz",
+@@ -883,7 +2049,37 @@
+       "integrity": "sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg==",
+       "license": "MIT",
+       "engines": {
+-        "node": ">= 0.6"
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/node-fetch": {
++      "version": "2.7.0",
++      "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
++      "integrity": "sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "whatwg-url": "^5.0.0"
++      },
++      "engines": {
++        "node": "4.x || >=6.0.0"
++      },
++      "peerDependencies": {
++        "encoding": "^0.1.0"
++      },
++      "peerDependenciesMeta": {
++        "encoding": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/node-forge": {
++      "version": "1.4.0",
++      "resolved": "https://registry.npmjs.org/node-forge/-/node-forge-1.4.0.tgz",
++      "integrity": "sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==",
++      "license": "(BSD-3-Clause OR GPL-2.0)",
++      "engines": {
++        "node": ">= 6.13.0"
+       }
+     },
+     "node_modules/nodemon": {
+@@ -959,6 +2155,16 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/object-hash": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/object-hash/-/object-hash-3.0.0.tgz",
++      "integrity": "sha512-RSn9F68PjH9HqtltsSnqYC1XXoWe9Bju5+213R98cNGttag9q9yAOTzdbsqvIa7aNm5WffBZFpWYr2aWrklWAw==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">= 6"
++      }
++    },
+     "node_modules/object-inspect": {
+       "version": "1.13.4",
+       "resolved": "https://registry.npmjs.org/object-inspect/-/object-inspect-1.13.4.tgz",
+@@ -983,6 +2189,32 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/once": {
++      "version": "1.4.0",
++      "resolved": "https://registry.npmjs.org/once/-/once-1.4.0.tgz",
++      "integrity": "sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==",
++      "license": "ISC",
++      "optional": true,
++      "dependencies": {
++        "wrappy": "1"
++      }
++    },
++    "node_modules/p-limit": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/p-limit/-/p-limit-3.1.0.tgz",
++      "integrity": "sha512-TYOanM3wGwNGsZN2cVTYPArw454xnXj5qmWF1bEoAc4+cU/ol7GVh7odevjp1FNHduHc3KZMcFduxU5Xc6uJRQ==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "yocto-queue": "^0.1.0"
++      },
++      "engines": {
++        "node": ">=10"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
+     "node_modules/parseurl": {
+       "version": "1.3.3",
+       "resolved": "https://registry.npmjs.org/parseurl/-/parseurl-1.3.3.tgz",
+@@ -992,6 +2224,22 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/path-expression-matcher": {
++      "version": "1.6.1",
++      "resolved": "https://registry.npmjs.org/path-expression-matcher/-/path-expression-matcher-1.6.1.tgz",
++      "integrity": "sha512-h7bxdzhHk8Knyc4Tj+jMaa7fEEoUJy7p1qtbVgkYg1Uhpe5Np5VuGXCRZnkZvU+Q42M1vStt0ifa3ueykRJPmQ==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/NaturalIntelligence"
++        }
++      ],
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
+     "node_modules/path-to-regexp": {
+       "version": "0.1.13",
+       "resolved": "https://registry.npmjs.org/path-to-regexp/-/path-to-regexp-0.1.13.tgz",
+@@ -1139,6 +2387,43 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/proto3-json-serializer": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/proto3-json-serializer/-/proto3-json-serializer-2.0.2.tgz",
++      "integrity": "sha512-SAzp/O4Yh02jGdRc+uIrGoe87dkN/XtwxfZ4ZyafJHymd79ozp5VG5nyZ7ygqPM5+cpLDjjGnYFUkngonyDPOQ==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "protobufjs": "^7.2.5"
++      },
++      "engines": {
++        "node": ">=14.0.0"
++      }
++    },
++    "node_modules/protobufjs": {
++      "version": "7.6.5",
++      "resolved": "https://registry.npmjs.org/protobufjs/-/protobufjs-7.6.5.tgz",
++      "integrity": "sha512-/FPD0nUc9jH6rfFjji9IBqOz4pcSE3CsT1m7Ep6Mdb0LxSUMj8hgl6GomOvZzpNpAqqGaXA0P3VSrZLFzIhQrw==",
++      "hasInstallScript": true,
++      "license": "BSD-3-Clause",
++      "optional": true,
++      "dependencies": {
++        "@protobufjs/aspromise": "^1.1.2",
++        "@protobufjs/base64": "^1.1.2",
++        "@protobufjs/codegen": "^2.0.5",
++        "@protobufjs/eventemitter": "^1.1.1",
++        "@protobufjs/fetch": "^1.1.1",
++        "@protobufjs/float": "^1.0.2",
++        "@protobufjs/path": "^1.1.2",
++        "@protobufjs/pool": "^1.1.0",
++        "@protobufjs/utf8": "^1.1.1",
++        "@types/node": ">=13.7.0",
++        "long": "^5.3.2"
++      },
++      "engines": {
++        "node": ">=12.0.0"
++      }
++    },
+     "node_modules/proxy-addr": {
+       "version": "2.0.7",
+       "resolved": "https://registry.npmjs.org/proxy-addr/-/proxy-addr-2.0.7.tgz",
+@@ -1199,6 +2484,21 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/readable-stream": {
++      "version": "3.6.2",
++      "resolved": "https://registry.npmjs.org/readable-stream/-/readable-stream-3.6.2.tgz",
++      "integrity": "sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "inherits": "^2.0.3",
++        "string_decoder": "^1.1.1",
++        "util-deprecate": "^1.0.1"
++      },
++      "engines": {
++        "node": ">= 6"
++      }
++    },
+     "node_modules/readdirp": {
+       "version": "3.6.0",
+       "resolved": "https://registry.npmjs.org/readdirp/-/readdirp-3.6.0.tgz",
+@@ -1212,6 +2512,41 @@
+         "node": ">=8.10.0"
+       }
+     },
++    "node_modules/require-directory": {
++      "version": "2.1.1",
++      "resolved": "https://registry.npmjs.org/require-directory/-/require-directory-2.1.1.tgz",
++      "integrity": "sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/retry": {
++      "version": "0.13.1",
++      "resolved": "https://registry.npmjs.org/retry/-/retry-0.13.1.tgz",
++      "integrity": "sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">= 4"
++      }
++    },
++    "node_modules/retry-request": {
++      "version": "7.0.2",
++      "resolved": "https://registry.npmjs.org/retry-request/-/retry-request-7.0.2.tgz",
++      "integrity": "sha512-dUOvLMJ0/JJYEn8NrpOaGNE7X3vpI5XlZS/u0ANjqtcZVKnIxP7IgCFwrKTxENw29emmwug53awKtaMm4i9g5w==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@types/request": "^2.48.8",
++        "extend": "^3.0.2",
++        "teeny-request": "^9.0.0"
++      },
++      "engines": {
++        "node": ">=14"
++      }
++    },
+     "node_modules/safe-buffer": {
+       "version": "5.2.1",
+       "resolved": "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz",
+@@ -1404,6 +2739,84 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/stream-events": {
++      "version": "1.0.5",
++      "resolved": "https://registry.npmjs.org/stream-events/-/stream-events-1.0.5.tgz",
++      "integrity": "sha512-E1GUzBSgvct8Jsb3v2X15pjzN1tYebtbLaMg+eBOUOAxgbLoSbT2NS91ckc5lJD1KfLjId+jXJRgo0qnV5Nerg==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "stubs": "^3.0.0"
++      }
++    },
++    "node_modules/stream-shift": {
++      "version": "1.0.3",
++      "resolved": "https://registry.npmjs.org/stream-shift/-/stream-shift-1.0.3.tgz",
++      "integrity": "sha512-76ORR0DO1o1hlKwTbi/DM3EXWGf3ZJYO8cXX5RJwnul2DEg2oyoZyjLNoQM8WsvZiFKCRfC1O0J7iCvie3RZmQ==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/string_decoder": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/string_decoder/-/string_decoder-1.3.0.tgz",
++      "integrity": "sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "safe-buffer": "~5.2.0"
++      }
++    },
++    "node_modules/string-width": {
++      "version": "4.2.3",
++      "resolved": "https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz",
++      "integrity": "sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "emoji-regex": "^8.0.0",
++        "is-fullwidth-code-point": "^3.0.0",
++        "strip-ansi": "^6.0.1"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/strip-ansi": {
++      "version": "6.0.1",
++      "resolved": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz",
++      "integrity": "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "ansi-regex": "^5.0.1"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/strnum": {
++      "version": "2.4.1",
++      "resolved": "https://registry.npmjs.org/strnum/-/strnum-2.4.1.tgz",
++      "integrity": "sha512-M9eUSMT2dCB2cTNPG7UYj6KuK7RJR2SN2+yCV/fTW3xzTCS6EaGZ5pSMgDIjB7r8zSfTGk+dvvn9rTjpVS9Mwg==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/NaturalIntelligence"
++        }
++      ],
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "anynum": "^1.0.1"
++      }
++    },
++    "node_modules/stubs": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/stubs/-/stubs-3.0.0.tgz",
++      "integrity": "sha512-PdHt7hHUJKxvTCgbKX9C1V/ftOcjJQgz8BZwNfV5c4B6dcGqlpelTbJ999jBGZ2jYiPAwcX5dP6oBwVlBlUbxw==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/supports-color": {
+       "version": "5.5.0",
+       "resolved": "https://registry.npmjs.org/supports-color/-/supports-color-5.5.0.tgz",
+@@ -1417,6 +2830,75 @@
+         "node": ">=4"
+       }
+     },
++    "node_modules/teeny-request": {
++      "version": "9.0.0",
++      "resolved": "https://registry.npmjs.org/teeny-request/-/teeny-request-9.0.0.tgz",
++      "integrity": "sha512-resvxdc6Mgb7YEThw6G6bExlXKkv6+YbuzGg9xuXxSgxJF7Ozs+o8Y9+2R3sArdWdW8nOokoQb1yrpFB0pQK2g==",
++      "license": "Apache-2.0",
++      "optional": true,
++      "dependencies": {
++        "http-proxy-agent": "^5.0.0",
++        "https-proxy-agent": "^5.0.0",
++        "node-fetch": "^2.6.9",
++        "stream-events": "^1.0.5",
++        "uuid": "^9.0.0"
++      },
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/teeny-request/node_modules/agent-base": {
++      "version": "6.0.2",
++      "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-6.0.2.tgz",
++      "integrity": "sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "debug": "4"
++      },
++      "engines": {
++        "node": ">= 6.0.0"
++      }
++    },
++    "node_modules/teeny-request/node_modules/debug": {
++      "version": "4.4.3",
++      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
++      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "ms": "^2.1.3"
++      },
++      "engines": {
++        "node": ">=6.0"
++      },
++      "peerDependenciesMeta": {
++        "supports-color": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/teeny-request/node_modules/https-proxy-agent": {
++      "version": "5.0.1",
++      "resolved": "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-5.0.1.tgz",
++      "integrity": "sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "agent-base": "6",
++        "debug": "4"
++      },
++      "engines": {
++        "node": ">= 6"
++      }
++    },
++    "node_modules/teeny-request/node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/to-regex-range": {
+       "version": "5.0.1",
+       "resolved": "https://registry.npmjs.org/to-regex-range/-/to-regex-range-5.0.1.tgz",
+@@ -1449,6 +2931,19 @@
+         "nodetouch": "bin/nodetouch.js"
+       }
+     },
++    "node_modules/tr46": {
++      "version": "0.0.3",
++      "resolved": "https://registry.npmjs.org/tr46/-/tr46-0.0.3.tgz",
++      "integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/tslib": {
++      "version": "2.8.1",
++      "resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
++      "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
++      "license": "0BSD"
++    },
+     "node_modules/type-is": {
+       "version": "1.6.18",
+       "resolved": "https://registry.npmjs.org/type-is/-/type-is-1.6.18.tgz",
+@@ -1469,6 +2964,12 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/undici-types": {
++      "version": "6.21.0",
++      "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-6.21.0.tgz",
++      "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==",
++      "license": "MIT"
++    },
+     "node_modules/unpipe": {
+       "version": "1.0.0",
+       "resolved": "https://registry.npmjs.org/unpipe/-/unpipe-1.0.0.tgz",
+@@ -1478,6 +2979,13 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/util-deprecate": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/util-deprecate/-/util-deprecate-1.0.2.tgz",
++      "integrity": "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/utils-merge": {
+       "version": "1.0.1",
+       "resolved": "https://registry.npmjs.org/utils-merge/-/utils-merge-1.0.1.tgz",
+@@ -1510,6 +3018,88 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/webidl-conversions": {
++      "version": "3.0.1",
++      "resolved": "https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-3.0.1.tgz",
++      "integrity": "sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==",
++      "license": "BSD-2-Clause",
++      "optional": true
++    },
++    "node_modules/websocket-driver": {
++      "version": "0.7.5",
++      "resolved": "https://registry.npmjs.org/websocket-driver/-/websocket-driver-0.7.5.tgz",
++      "integrity": "sha512-ZL2+3c7kMBdIRCMz6l8jQMHyGVxj+UL+xVk74Ombiciboca8rHa15L86B19E5oh1pL9Ii/uj54gtsIrZGMo6zA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "http-parser-js": ">=0.5.1",
++        "safe-buffer": ">=5.1.0",
++        "websocket-extensions": ">=0.1.1"
++      },
++      "engines": {
++        "node": ">=0.8.0"
++      }
++    },
++    "node_modules/websocket-extensions": {
++      "version": "0.1.4",
++      "resolved": "https://registry.npmjs.org/websocket-extensions/-/websocket-extensions-0.1.4.tgz",
++      "integrity": "sha512-OqedPIGOfsDlo31UNwYbCFMSaO9m9G/0faIHj5/dZFDMFqPTcx6UwqyOy3COEaEOg/9VsGIpdqn62W5KhoKSpg==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=0.8.0"
++      }
++    },
++    "node_modules/whatwg-url": {
++      "version": "5.0.0",
++      "resolved": "https://registry.npmjs.org/whatwg-url/-/whatwg-url-5.0.0.tgz",
++      "integrity": "sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "tr46": "~0.0.3",
++        "webidl-conversions": "^3.0.0"
++      }
++    },
++    "node_modules/wrap-ansi": {
++      "version": "7.0.0",
++      "resolved": "https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-7.0.0.tgz",
++      "integrity": "sha512-YVGIj2kamLSTxw6NsZjoBxfSwsn0ycdesmc4p+Q21c5zPuZ1pl+NfxVdxPtdHvmNVOQ6XSYG4AUtyt/Fi7D16Q==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "ansi-styles": "^4.0.0",
++        "string-width": "^4.1.0",
++        "strip-ansi": "^6.0.0"
++      },
++      "engines": {
++        "node": ">=10"
++      },
++      "funding": {
++        "url": "https://github.com/chalk/wrap-ansi?sponsor=1"
++      }
++    },
++    "node_modules/wrappy": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/wrappy/-/wrappy-1.0.2.tgz",
++      "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==",
++      "license": "ISC",
++      "optional": true
++    },
++    "node_modules/xml-naming": {
++      "version": "0.1.0",
++      "resolved": "https://registry.npmjs.org/xml-naming/-/xml-naming-0.1.0.tgz",
++      "integrity": "sha512-k8KO9hrMyNk6tUWqUfkTEZbezRRpONVOzUTnc97VnCvyj6Tf9lyUR9EDAIeiVLv56jsMcoXEwjW8Kv5yPY52lw==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/NaturalIntelligence"
++        }
++      ],
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=16.0.0"
++      }
++    },
+     "node_modules/xtend": {
+       "version": "4.0.2",
+       "resolved": "https://registry.npmjs.org/xtend/-/xtend-4.0.2.tgz",
+@@ -1518,6 +3108,64 @@
+       "engines": {
+         "node": ">=0.4"
+       }
++    },
++    "node_modules/y18n": {
++      "version": "5.0.8",
++      "resolved": "https://registry.npmjs.org/y18n/-/y18n-5.0.8.tgz",
++      "integrity": "sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==",
++      "license": "ISC",
++      "optional": true,
++      "engines": {
++        "node": ">=10"
++      }
++    },
++    "node_modules/yallist": {
++      "version": "4.0.0",
++      "resolved": "https://registry.npmjs.org/yallist/-/yallist-4.0.0.tgz",
++      "integrity": "sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==",
++      "license": "ISC"
++    },
++    "node_modules/yargs": {
++      "version": "17.7.3",
++      "resolved": "https://registry.npmjs.org/yargs/-/yargs-17.7.3.tgz",
++      "integrity": "sha512-GZtjxm/J/4TSxuL3FNYjCmLktBTnIw/rVmKSIyKeYAZpmJB2ig9VauCC5xsa82GNKVKDAqpOn3KVzNt0zmrU0g==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "cliui": "^8.0.1",
++        "escalade": "^3.1.1",
++        "get-caller-file": "^2.0.5",
++        "require-directory": "^2.1.1",
++        "string-width": "^4.2.3",
++        "y18n": "^5.0.5",
++        "yargs-parser": "^21.1.1"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/yargs-parser": {
++      "version": "21.1.1",
++      "resolved": "https://registry.npmjs.org/yargs-parser/-/yargs-parser-21.1.1.tgz",
++      "integrity": "sha512-tVpsJW7DdjecAiFpbIB1e3qxIQsE6NoPc5/eTdrbbIC4h0LVsWhnoa3g+m2HclBIujHzsxZ4VJVA+GUuc2/LBw==",
++      "license": "ISC",
++      "optional": true,
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/yocto-queue": {
++      "version": "0.1.0",
++      "resolved": "https://registry.npmjs.org/yocto-queue/-/yocto-queue-0.1.0.tgz",
++      "integrity": "sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=10"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
+     }
+   }
+ }
+diff --git a/package.json b/package.json
+index b42c038..ebe2e67 100644
+--- a/package.json
++++ b/package.json
+@@ -8,13 +8,16 @@
+     "dev": "nodemon src/index.js",
+     "db:init": "node src/config/initDB.js",
+     "db:seed": "node src/config/seedDB.js",
+-    "rag:index": "node src/services/ragIndexer.js"
++    "rag:index": "node src/services/ragIndexer.js",
++    "db:migrate:firebase-geo": "node src/config/migrateFirebaseGeo.js",
++    "push:test": "node src/scripts/sendTestPush.js"
+   },
+   "dependencies": {
+     "bcryptjs": "^2.4.3",
+     "cors": "^2.8.5",
+     "dotenv": "^16.4.5",
+     "express": "^4.18.2",
++    "firebase-admin": "^12.7.0",
+     "jsonwebtoken": "^9.0.2",
+     "pg": "^8.12.0",
+     "uuid": "^9.0.0"
+diff --git a/public/push-test.html b/public/push-test.html
+new file mode 100644
+index 0000000..228fb3b
+--- /dev/null
++++ b/public/push-test.html
+@@ -0,0 +1,94 @@
++<!DOCTYPE html>
++<html lang="id">
++<head>
++<meta charset="UTF-8" />
++<title>Sasacation — Push Notification Test</title>
++<meta name="viewport" content="width=device-width, initial-scale=1" />
++<style>
++  :root { --teal: #0d3b3e; --gold: #c8a04d; --bg: #f6f4ef; }
++  * { box-sizing: border-box; }
++  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); margin: 0; padding: 32px 16px; color: #1b1b1b; }
++  .card { max-width: 560px; margin: 0 auto; background: #fff; border-radius: 16px; padding: 28px; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
++  h1 { font-size: 1.3rem; color: var(--teal); margin: 0 0 4px; }
++  p.sub { color: #666; margin-top: 0; margin-bottom: 24px; font-size: .9rem; }
++  label { display: block; font-size: .8rem; font-weight: 600; margin: 14px 0 6px; color: var(--teal); }
++  input, textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: .95rem; font-family: inherit; }
++  textarea { min-height: 60px; resize: vertical; }
++  button { margin-top: 20px; width: 100%; padding: 12px; border: none; border-radius: 8px; background: var(--teal); color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer; }
++  button:hover { opacity: .92; }
++  button:disabled { opacity: .5; cursor: not-allowed; }
++  #result { margin-top: 18px; padding: 12px 14px; border-radius: 8px; font-size: .85rem; white-space: pre-wrap; word-break: break-word; display: none; }
++  #result.ok { display: block; background: #e6f4ea; color: #1e6b34; }
++  #result.err { display: block; background: #fdecea; color: #a3231a; }
++  .hint { font-size: .75rem; color: #888; margin-top: 6px; }
++</style>
++</head>
++<body>
++  <div class="card">
++    <h1>🌴 Sasacation — Push Notification Test</h1>
++    <p class="sub">Halaman ini memanggil <code>POST /api/notifications/test</code> untuk mengirim push notification sungguhan lewat Firebase Cloud Messaging. Gunakan untuk memverifikasi setup Firebase tanpa perlu build aplikasi Flutter.</p>
++
++    <label>JWT Token (login dulu lewat /api/auth/login atau /api/auth/firebase)</label>
++    <textarea id="jwt" placeholder="Bearer token dari response login (tanpa kata 'Bearer')"></textarea>
++    <p class="hint">Dipakai untuk otorisasi. Kalau field FCM token di bawah dikosongkan, server akan pakai token yang sudah ter-register untuk akun ini.</p>
++
++    <label>FCM Device Token (opsional)</label>
++    <textarea id="fcmToken" placeholder="Kosongkan untuk pakai token yang sudah diregister lewat app"></textarea>
++
++    <label>Judul</label>
++    <input id="title" value="Test Notifikasi Sasacation" />
++
++    <label>Isi Pesan</label>
++    <input id="body" value="Ini pesan test push notification dari Sasacation 🌴" />
++
++    <button id="sendBtn">Kirim Push Notification</button>
++
++    <div id="result"></div>
++  </div>
++
++<script>
++  const $ = (id) => document.getElementById(id);
++
++  $('sendBtn').addEventListener('click', async () => {
++    const jwt = $('jwt').value.trim();
++    const token = $('fcmToken').value.trim();
++    const title = $('title').value.trim();
++    const body = $('body').value.trim();
++    const resultEl = $('result');
++    const btn = $('sendBtn');
++
++    resultEl.className = '';
++    resultEl.style.display = 'none';
++
++    if (!jwt) {
++      resultEl.className = 'err';
++      resultEl.textContent = 'JWT token wajib diisi. Login dulu lewat POST /api/auth/login untuk mendapatkannya.';
++      return;
++    }
++
++    btn.disabled = true;
++    btn.textContent = 'Mengirim...';
++
++    try {
++      const res = await fetch('/api/notifications/test', {
++        method: 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++          Authorization: `Bearer ${jwt}`,
++        },
++        body: JSON.stringify({ token: token || undefined, title, body }),
++      });
++      const data = await res.json();
++      resultEl.className = res.ok ? 'ok' : 'err';
++      resultEl.textContent = JSON.stringify(data, null, 2);
++    } catch (err) {
++      resultEl.className = 'err';
++      resultEl.textContent = `Gagal menghubungi server: ${err.message}`;
++    } finally {
++      btn.disabled = false;
++      btn.textContent = 'Kirim Push Notification';
++    }
++  });
++</script>
++</body>
++</html>
+diff --git a/src/config/firebase.js b/src/config/firebase.js
+new file mode 100644
+index 0000000..d2b6441
+--- /dev/null
++++ b/src/config/firebase.js
+@@ -0,0 +1,64 @@
++// src/config/firebase.js
++// Inisialisasi Firebase Admin SDK.
++// Dipakai untuk:
++//   1. Verifikasi ID token dari Firebase Auth (login Google/Apple/Email di app)
++//   2. Mengirim push notification lewat Firebase Cloud Messaging (FCM)
++//
++// Credential diambil dari salah satu:
++//   - FIREBASE_SERVICE_ACCOUNT_JSON (isi JSON service account sebagai string, dipakai saat deploy)
++//   - FIREBASE_SERVICE_ACCOUNT_PATH (path ke file JSON, dipakai untuk lokal)
++//
++// Kalau keduanya tidak ada, admin SDK sengaja TIDAK di-init supaya server tetap
++// bisa jalan untuk fitur lain (hotels, explore, dst) — hanya endpoint yang
++// butuh Firebase yang akan menolak request dengan pesan jelas.
++
++const admin = require('firebase-admin');
++
++let app = null;
++let initError = null;
++
++function loadServiceAccount() {
++  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
++    return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
++  }
++  if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
++    // eslint-disable-next-line import/no-dynamic-require, global-require
++    return require(require('path').resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH));
++  }
++  return null;
++}
++
++try {
++  const serviceAccount = loadServiceAccount();
++  if (serviceAccount) {
++    app = admin.initializeApp({
++      credential: admin.credential.cert(serviceAccount),
++    });
++    console.log('✅ Firebase Admin SDK aktif (Auth + FCM siap dipakai)');
++  } else {
++    console.warn('⚠️  Firebase Admin SDK TIDAK di-init — FIREBASE_SERVICE_ACCOUNT_PATH/JSON belum diisi di .env');
++    console.warn('   Endpoint /api/auth/firebase dan /api/notifications/* akan menolak request.');
++  }
++} catch (err) {
++  initError = err;
++  console.error('❌ Gagal inisialisasi Firebase Admin SDK:', err.message);
++}
++
++function isFirebaseReady() {
++  return app !== null;
++}
++
++function requireFirebase() {
++  if (!isFirebaseReady()) {
++    const reason = initError ? initError.message : 'Kredensial Firebase belum dikonfigurasi';
++    const err = new Error(`Firebase Admin belum siap: ${reason}`);
++    err.code = 'FIREBASE_NOT_READY';
++    throw err;
++  }
++}
++
++module.exports = {
++  admin,
++  isFirebaseReady,
++  requireFirebase,
++};
+diff --git a/src/config/initDB.js b/src/config/initDB.js
+index db75035..6c38e78 100644
+--- a/src/config/initDB.js
++++ b/src/config/initDB.js
+@@ -28,6 +28,11 @@ async function initDB() {
+         avatar      TEXT,
+         provider    TEXT        NOT NULL DEFAULT 'email',
+         provider_id TEXT,
++        firebase_uid TEXT       UNIQUE,
++        fcm_token    TEXT,
++        fcm_platform TEXT,
++        latitude     NUMERIC,
++        longitude    NUMERIC,
+         created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )
+@@ -50,6 +55,8 @@ async function initDB() {
+         amenities    TEXT[]      DEFAULT '{}',
+         featured     BOOLEAN     DEFAULT false,
+         available    BOOLEAN     DEFAULT true,
++        latitude     NUMERIC,
++        longitude    NUMERIC,
+         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )
+@@ -70,6 +77,8 @@ async function initDB() {
+         images       TEXT[]      DEFAULT '{}',
+         description  TEXT,
+         sub_category TEXT        CHECK (sub_category IN ('Beaches','Islands','Adventure','Culture')),
++        latitude     NUMERIC,
++        longitude    NUMERIC,
+         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )
+@@ -91,6 +100,8 @@ async function initDB() {
+         description  TEXT,
+         cuisine      TEXT,
+         open_hours   TEXT,
++        latitude     NUMERIC,
++        longitude    NUMERIC,
+         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )
+diff --git a/src/config/migrateFirebaseGeo.js b/src/config/migrateFirebaseGeo.js
+new file mode 100644
+index 0000000..0f9bc06
+--- /dev/null
++++ b/src/config/migrateFirebaseGeo.js
+@@ -0,0 +1,60 @@
++// src/config/migrateFirebaseGeo.js
++// Migration TAMBAHAN (non-destruktif) untuk database yang sudah pernah
++// di-init sebelumnya via `npm run db:init`.
++//
++// Menambahkan:
++//   - users.firebase_uid   → UID dari Firebase Auth (login Google/Apple/Email)
++//   - users.fcm_token      → token device untuk push notification
++//   - users.fcm_platform   → 'android' | 'ios' | 'web' (info device terakhir)
++//   - users.latitude / users.longitude → lokasi terakhir user (opsional, untuk fitur "hotel terdekat dari saya")
++//   - hotels.latitude / hotels.longitude → koordinat hotel (untuk fitur geolocation "hotel terdekat")
++//
++// Jalankan: npm run db:migrate:firebase-geo
++// Aman dijalankan berkali-kali (pakai IF NOT EXISTS).
++
++require('dotenv').config();
++const pool = require('./db');
++
++async function migrate() {
++  const client = await pool.connect();
++  try {
++    console.log('🔧 Menjalankan migrasi Firebase + Geolocation...\n');
++    await client.query('BEGIN');
++
++    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid TEXT UNIQUE`);
++    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_token TEXT`);
++    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_platform TEXT`);
++    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS latitude NUMERIC`);
++    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS longitude NUMERIC`);
++    console.log('✅ Kolom firebase_uid, fcm_token, fcm_platform, latitude, longitude ditambahkan ke tabel users');
++
++    // provider_id dulu dipakai untuk social login manual (google/apple id apa adanya
++    // dari client, TIDAK diverifikasi). Sekarang provider_id boleh tetap ada untuk
++    // kompatibilitas data lama, tapi alur baru pakai firebase_uid yang sudah
++    // diverifikasi oleh Firebase Admin SDK.
++
++    await client.query(`ALTER TABLE hotels ADD COLUMN IF NOT EXISTS latitude NUMERIC`);
++    await client.query(`ALTER TABLE hotels ADD COLUMN IF NOT EXISTS longitude NUMERIC`);
++    console.log('✅ Kolom latitude, longitude ditambahkan ke tabel hotels');
++
++    await client.query(`ALTER TABLE destinations ADD COLUMN IF NOT EXISTS latitude NUMERIC`);
++    await client.query(`ALTER TABLE destinations ADD COLUMN IF NOT EXISTS longitude NUMERIC`);
++    console.log('✅ Kolom latitude, longitude ditambahkan ke tabel destinations');
++
++    await client.query(`ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS latitude NUMERIC`);
++    await client.query(`ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS longitude NUMERIC`);
++    console.log('✅ Kolom latitude, longitude ditambahkan ke tabel restaurants');
++
++    await client.query('COMMIT');
++    console.log('\n🎉 Migrasi selesai. Jalankan `npm run db:seed` ulang (opsional) kalau ingin mengisi koordinat contoh untuk data Lombok yang sudah ada, atau update manual lewat SQL.');
++  } catch (err) {
++    await client.query('ROLLBACK');
++    console.error('❌ Migrasi gagal:', err.message);
++    throw err;
++  } finally {
++    client.release();
++    await pool.end();
++  }
++}
++
++migrate();
+diff --git a/src/config/seedDB.js b/src/config/seedDB.js
+index 4f09cf6..459e43d 100644
+--- a/src/config/seedDB.js
++++ b/src/config/seedDB.js
+@@ -17,6 +17,7 @@ const hotels = [
+     description: 'Qunci Villas adalah resort bintang 5 yang terletak langsung di tepi pantai Mangsit yang tenang. Dengan 56 villa pribadi yang dikelilingi taman tropis, setiap villa memiliki kolam renang pribadi dan pemandangan langsung ke Selat Lombok.',
+     amenities: ['Private Pool','Beach Access','Spa','Restaurant','Bar','WiFi','Airport Transfer'],
+     featured: true,
++    latitude: -8.5100, longitude: 116.0500,
+   },
+   {
+     id: 'a0000001-0000-0000-0000-000000000002',
+@@ -28,6 +29,7 @@ const hotels = [
+     description: 'Oberoi Beach Resort Lombok merupakan salah satu resort paling mewah di Lombok. Terletak di pantai Medana yang terpencil, menawarkan pengalaman eksklusif dengan pemandangan laut yang luar biasa.',
+     amenities: ['Private Beach','Infinity Pool','Spa','Dive Center','Restaurant','WiFi','Butler Service'],
+     featured: true,
++    latitude: -8.3600, longitude: 116.0770,
+   },
+   {
+     id: 'a0000001-0000-0000-0000-000000000003',
+@@ -39,6 +41,7 @@ const hotels = [
+     description: 'Katamaran Resort & Spa adalah hotel bintang 4 di kawasan Senggigi dengan pemandangan langsung ke Selat Lombok dan Gunung Agung Bali.',
+     amenities: ['Pool','Spa','Restaurant','Bar','WiFi','Water Sports'],
+     featured: true,
++    latitude: -8.4870, longitude: 116.0430,
+   },
+   {
+     id: 'a0000001-0000-0000-0000-000000000004',
+@@ -50,6 +53,7 @@ const hotels = [
+     description: 'Puri Mas Boutique Resort adalah resort butik yang nyaman dengan nuansa Sasak yang kental, cocok untuk wisatawan yang ingin merasakan budaya lokal Lombok.',
+     amenities: ['Pool','Restaurant','Cultural Activities','WiFi','Garden'],
+     featured: false,
++    latitude: -8.5080, longitude: 116.0510,
+   },
+ ];
+ 
+@@ -63,6 +67,7 @@ const destinations = [
+     images: ['https://images.unsplash.com/photo-1506905925346-21bda4d32df4'],
+     description: 'Gunung Rinjani adalah gunung berapi aktif tertinggi kedua di Indonesia dengan ketinggian 3.726 mdpl. Danau kawah Segara Anak menawarkan pemandangan yang luar biasa indah.',
+     sub_category: 'Adventure',
++    latitude: -8.4110, longitude: 116.4570,
+   },
+   {
+     id: 'b0000002-0000-0000-0000-000000000002',
+@@ -73,6 +78,7 @@ const destinations = [
+     images: ['https://images.unsplash.com/photo-1512641406448-6574e7773702'],
+     description: 'Gili Trawangan adalah pulau terbesar dari tiga Gili bersaudara. Pantai putih, air jernih, dan kehidupan bawah laut yang kaya tanpa kendaraan bermotor.',
+     sub_category: 'Islands',
++    latitude: -8.3496, longitude: 116.0413,
+   },
+   {
+     id: 'b0000002-0000-0000-0000-000000000003',
+@@ -83,6 +89,7 @@ const destinations = [
+     images: ['https://images.unsplash.com/photo-1507525428034-b723cf961d3e'],
+     description: 'Pantai Pink atau Tangsi memiliki pasir berwarna pink kemerahan yang unik, berasal dari pecahan karang merah bercampur pasir putih.',
+     sub_category: 'Beaches',
++    latitude: -8.8580, longitude: 116.4790,
+   },
+   {
+     id: 'b0000002-0000-0000-0000-000000000004',
+@@ -93,6 +100,7 @@ const destinations = [
+     images: ['https://images.unsplash.com/photo-1558618666-fcd25c85cd64'],
+     description: 'Desa Sade adalah desa tradisional suku Sasak yang masih mempertahankan adat istiadat dan arsitektur tradisional. Tersedia tenun khas Lombok.',
+     sub_category: 'Culture',
++    latitude: -8.8890, longitude: 116.2790,
+   },
+ ];
+ 
+@@ -106,6 +114,7 @@ const restaurants = [
+     images: ['https://images.unsplash.com/photo-1517248135467-4c7edcad34c4'],
+     description: 'Warung makan legendaris yang menyajikan Ayam Taliwang, makanan khas Lombok dengan bumbu rempah otentik.',
+     cuisine: 'Sasak Traditional', open_hours: '10:00 - 22:00',
++    latitude: -8.5833, longitude: 116.1167,
+   },
+   {
+     id: 'c0000003-0000-0000-0000-000000000002',
+@@ -116,6 +125,7 @@ const restaurants = [
+     images: ['https://images.unsplash.com/photo-1504674900247-0877df9cc836'],
+     description: 'Sate Rembiga khas Lombok dari daging sapi dengan bumbu kaya rempah. Salah satu yang paling terkenal di Mataram.',
+     cuisine: 'Sasak Traditional', open_hours: '11:00 - 21:00',
++    latitude: -8.5730, longitude: 116.1120,
+   },
+   {
+     id: 'c0000003-0000-0000-0000-000000000003',
+@@ -126,6 +136,7 @@ const restaurants = [
+     images: ['https://images.unsplash.com/photo-1414235077428-338989a2e8c0'],
+     description: 'Seafood segar dengan pemandangan laut Senggigi. Menu andalan ikan bakar dan lobster dengan bumbu Sasak.',
+     cuisine: 'Seafood', open_hours: '12:00 - 23:00',
++    latitude: -8.4870, longitude: 116.0430,
+   },
+ ];
+ 
+@@ -148,30 +159,30 @@ async function seed() {
+     // Hotels
+     for (const h of hotels) {
+       await client.query(`
+-        INSERT INTO hotels (id, name, location, address, price, rating, review_count, image, images, description, amenities, featured)
+-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+-        ON CONFLICT (id) DO NOTHING
+-      `, [h.id, h.name, h.location, h.address, h.price, h.rating, h.review_count, h.image, h.images, h.description, h.amenities, h.featured]);
++        INSERT INTO hotels (id, name, location, address, price, rating, review_count, image, images, description, amenities, featured, latitude, longitude)
++        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
++        ON CONFLICT (id) DO UPDATE SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude
++      `, [h.id, h.name, h.location, h.address, h.price, h.rating, h.review_count, h.image, h.images, h.description, h.amenities, h.featured, h.latitude, h.longitude]);
+     }
+     console.log(`✅ Hotels seeded (${hotels.length})`);
+ 
+     // Destinations
+     for (const d of destinations) {
+       await client.query(`
+-        INSERT INTO destinations (id, name, location, address, price, rating, review_count, image, images, description, sub_category)
+-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+-        ON CONFLICT (id) DO NOTHING
+-      `, [d.id, d.name, d.location, d.address, d.price, d.rating, d.review_count, d.image, d.images, d.description, d.sub_category]);
++        INSERT INTO destinations (id, name, location, address, price, rating, review_count, image, images, description, sub_category, latitude, longitude)
++        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
++        ON CONFLICT (id) DO UPDATE SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude
++      `, [d.id, d.name, d.location, d.address, d.price, d.rating, d.review_count, d.image, d.images, d.description, d.sub_category, d.latitude, d.longitude]);
+     }
+     console.log(`✅ Destinations seeded (${destinations.length})`);
+ 
+     // Restaurants
+     for (const r of restaurants) {
+       await client.query(`
+-        INSERT INTO restaurants (id, name, location, address, price, rating, review_count, image, images, description, cuisine, open_hours)
+-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+-        ON CONFLICT (id) DO NOTHING
+-      `, [r.id, r.name, r.location, r.address, r.price, r.rating, r.review_count, r.image, r.images, r.description, r.cuisine, r.open_hours]);
++        INSERT INTO restaurants (id, name, location, address, price, rating, review_count, image, images, description, cuisine, open_hours, latitude, longitude)
++        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
++        ON CONFLICT (id) DO UPDATE SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude
++      `, [r.id, r.name, r.location, r.address, r.price, r.rating, r.review_count, r.image, r.images, r.description, r.cuisine, r.open_hours, r.latitude, r.longitude]);
+     }
+     console.log(`✅ Restaurants seeded (${restaurants.length})`);
+ 
+diff --git a/src/controllers/authController.js b/src/controllers/authController.js
+index 818150e..4333c28 100644
+--- a/src/controllers/authController.js
++++ b/src/controllers/authController.js
+@@ -1,6 +1,7 @@
+ const bcrypt = require('bcryptjs');
+ const jwt = require('jsonwebtoken');
+ const pool = require('../config/db');
++const { admin, requireFirebase } = require('../config/firebase');
+ 
+ function makeToken(user) {
+   return jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
+@@ -91,6 +92,82 @@ const socialLogin = async (req, res) => {
+   }
+ };
+ 
++// POST /api/auth/firebase
++// Login/registrasi via Firebase Auth (Google, Apple, atau Email/Password yang
++// sudah dikelola Firebase di sisi app). BEDA dari socialLogin lama: di sini
++// idToken diverifikasi oleh Firebase Admin SDK, jadi identitas provider
++// (email, uid, nama) TIDAK bisa dipalsukan oleh client — tidak seperti
++// socialLogin lama yang menerima providerId/email apa adanya dari body request.
++const firebaseLogin = async (req, res) => {
++  try {
++    requireFirebase();
++
++    const { idToken } = req.body;
++    if (!idToken) return res.status(400).json({ success: false, message: 'idToken wajib diisi' });
++
++    let decoded;
++    try {
++      decoded = await admin.auth().verifyIdToken(idToken);
++    } catch (err) {
++      return res.status(401).json({ success: false, message: 'idToken tidak valid atau kadaluarsa' });
++    }
++
++    const { uid, email, name, picture, firebase } = decoded;
++    if (!email) {
++      return res.status(400).json({ success: false, message: 'Akun Firebase tidak memiliki email' });
++    }
++    const provider = firebase?.sign_in_provider || 'firebase';
++
++    let { rows } = await pool.query(
++      'SELECT * FROM users WHERE firebase_uid = $1 OR email = $2',
++      [uid, email]
++    );
++
++    let user;
++    if (rows.length === 0) {
++      const inserted = await pool.query(
++        `INSERT INTO users (name, email, provider, provider_id, firebase_uid, avatar, role)
++         VALUES ($1,$2,$3,$4,$5,$6,'user') RETURNING *`,
++        [name || email.split('@')[0], email, provider, uid, uid, picture || null]
++      );
++      user = inserted.rows[0];
++    } else {
++      const updated = await pool.query(
++        `UPDATE users SET firebase_uid = $1, provider = $2, avatar = COALESCE($3, avatar), updated_at = NOW()
++         WHERE id = $4 RETURNING *`,
++        [uid, provider, picture, rows[0].id]
++      );
++      user = updated.rows[0];
++    }
++
++    const token = makeToken(user);
++    res.json({ success: true, message: 'Login Firebase berhasil', data: { user: safeUser(user), token } });
++  } catch (e) {
++    if (e.code === 'FIREBASE_NOT_READY') {
++      return res.status(503).json({ success: false, message: e.message });
++    }
++    res.status(500).json({ success: false, message: 'Server error', error: e.message });
++  }
++};
++
++// PATCH /api/auth/location
++// Simpan lokasi terakhir user (dipakai untuk fitur "hotel terdekat dari saya").
++const updateLocation = async (req, res) => {
++  try {
++    const { latitude, longitude } = req.body;
++    if (latitude === undefined || longitude === undefined)
++      return res.status(400).json({ success: false, message: 'latitude dan longitude wajib diisi' });
++
++    await pool.query(
++      `UPDATE users SET latitude = $1, longitude = $2, updated_at = NOW() WHERE id = $3`,
++      [latitude, longitude, req.user.id]
++    );
++    res.json({ success: true, message: 'Lokasi berhasil disimpan' });
++  } catch (e) {
++    res.status(500).json({ success: false, message: 'Server error', error: e.message });
++  }
++};
++
+ const getMe = async (req, res) => {
+   try {
+     const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+@@ -114,4 +191,4 @@ const updateProfile = async (req, res) => {
+   }
+ };
+ 
+-module.exports = { register, login, socialLogin, getMe, updateProfile };
++module.exports = { register, login, socialLogin, firebaseLogin, getMe, updateProfile, updateLocation };
+diff --git a/src/controllers/hotelsController.js b/src/controllers/hotelsController.js
+index df5245f..bb1b7b3 100644
+--- a/src/controllers/hotelsController.js
++++ b/src/controllers/hotelsController.js
+@@ -40,4 +40,49 @@ const getHotelById = async (req, res) => {
+   }
+ };
+ 
+-module.exports = { getHotels, getHotelById };
++// GET /api/hotels/nearby?lat=&lng=&radius=10&limit=20
++// Hotel terdekat dari koordinat yang dikirim (biasanya lokasi GPS user saat ini).
++// Jarak dihitung dengan formula Haversine langsung di SQL (dalam kilometer),
++// hanya hotel yang punya latitude/longitude yang ikut dihitung.
++const getNearbyHotels = async (req, res) => {
++  try {
++    const { lat, lng, radius = 25, limit = 20 } = req.query;
++    if (lat === undefined || lng === undefined)
++      return res.status(400).json({ success: false, message: 'lat dan lng wajib diisi' });
++
++    const latitude = Number(lat);
++    const longitude = Number(lng);
++    const radiusKm = Number(radius);
++    if (Number.isNaN(latitude) || Number.isNaN(longitude))
++      return res.status(400).json({ success: false, message: 'lat dan lng harus berupa angka' });
++
++    const { rows } = await pool.query(
++      `
++      SELECT *, distance_km FROM (
++        SELECT *,
++          (
++            6371 * acos(
++              LEAST(1, GREATEST(-1,
++                cos(radians($1)) * cos(radians(latitude)) *
++                cos(radians(longitude) - radians($2)) +
++                sin(radians($1)) * sin(radians(latitude))
++              ))
++            )
++          ) AS distance_km
++        FROM hotels
++        WHERE available = true AND latitude IS NOT NULL AND longitude IS NOT NULL
++      ) sub
++      WHERE distance_km <= $3
++      ORDER BY distance_km ASC
++      LIMIT $4
++      `,
++      [latitude, longitude, radiusKm, Number(limit)]
++    );
++
++    res.json({ success: true, data: rows, meta: { lat: latitude, lng: longitude, radiusKm } });
++  } catch (e) {
++    res.status(500).json({ success: false, message: 'Server error', error: e.message });
++  }
++};
++
++module.exports = { getHotels, getHotelById, getNearbyHotels };
+diff --git a/src/controllers/notificationsController.js b/src/controllers/notificationsController.js
+new file mode 100644
+index 0000000..c74d8f8
+--- /dev/null
++++ b/src/controllers/notificationsController.js
+@@ -0,0 +1,77 @@
++const pool = require('../config/db');
++const { sendToToken } = require('../services/notificationService');
++
++// POST /api/notifications/register-token
++// Dipanggil app setelah login & setiap kali FCM token refresh.
++const registerToken = async (req, res) => {
++  try {
++    const { token, platform } = req.body;
++    if (!token) return res.status(400).json({ success: false, message: 'token wajib diisi' });
++
++    await pool.query(
++      `UPDATE users SET fcm_token = $1, fcm_platform = $2, updated_at = NOW() WHERE id = $3`,
++      [token, platform || null, req.user.id]
++    );
++
++    res.json({ success: true, message: 'FCM token terdaftar' });
++  } catch (e) {
++    res.status(500).json({ success: false, message: 'Server error', error: e.message });
++  }
++};
++
++// DELETE /api/notifications/token
++// Dipanggil saat logout supaya device tidak lagi menerima push untuk akun ini.
++const unregisterToken = async (req, res) => {
++  try {
++    await pool.query(
++      `UPDATE users SET fcm_token = NULL, fcm_platform = NULL, updated_at = NOW() WHERE id = $1`,
++      [req.user.id]
++    );
++    res.json({ success: true, message: 'FCM token dihapus' });
++  } catch (e) {
++    res.status(500).json({ success: false, message: 'Server error', error: e.message });
++  }
++};
++
++// POST /api/notifications/test
++// Endpoint khusus TESTING: kirim push notification ke token yang dikirim di
++// body, atau kalau tidak dikirim, pakai fcm_token milik user yang sedang login.
++// Dipakai oleh halaman /push-test.html maupun langsung dari Postman/curl.
++const sendTestNotification = async (req, res) => {
++  try {
++    const { token, title, body, data } = req.body;
++
++    let targetToken = token;
++    if (!targetToken) {
++      const { rows } = await pool.query('SELECT fcm_token FROM users WHERE id = $1', [req.user.id]);
++      targetToken = rows[0]?.fcm_token;
++    }
++    if (!targetToken) {
++      return res.status(400).json({
++        success: false,
++        message: 'Tidak ada FCM token. Kirim "token" di body, atau register-token dulu dari app.',
++      });
++    }
++
++    const messageId = await sendToToken(
++      targetToken,
++      { title: title || 'Test Notifikasi Sasacation', body: body || 'Ini pesan test push notification 🌴' },
++      data && typeof data === 'object' ? stringifyValues(data) : {}
++    );
++
++    res.json({ success: true, message: 'Push notification terkirim', data: { messageId } });
++  } catch (e) {
++    if (e.code === 'FIREBASE_NOT_READY') {
++      return res.status(503).json({ success: false, message: e.message });
++    }
++    res.status(500).json({ success: false, message: 'Gagal mengirim push notification', error: e.message });
++  }
++};
++
++function stringifyValues(obj) {
++  const out = {};
++  for (const [k, v] of Object.entries(obj)) out[k] = String(v);
++  return out;
++}
++
++module.exports = { registerToken, unregisterToken, sendTestNotification };
+diff --git a/src/index.js b/src/index.js
+index 73a0834..b049c9b 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -2,6 +2,7 @@ require('dotenv').config();
+ const express = require('express');
+ const cors = require('cors');
+ const pool = require('./config/db');
++const { isFirebaseReady } = require('./config/firebase');
+ 
+ // ─── Validasi environment variables ──────────────────────────────────────────
+ const requiredEnv = ['JWT_SECRET', 'DATABASE_URL'];
+@@ -60,13 +61,14 @@ async function checkEmbeddingCount() {
+   }
+ }
+ 
+-const authRoutes     = require('./routes/auth');
+-const hotelsRoutes   = require('./routes/hotels');
+-const exploreRoutes  = require('./routes/explore');
+-const bookingsRoutes = require('./routes/bookings');
+-const checkoutRoutes = require('./routes/checkout');
+-const aiRoutes       = require('./routes/ai');
+-const ragRoutes      = require('./routes/rag');
++const authRoutes         = require('./routes/auth');
++const hotelsRoutes       = require('./routes/hotels');
++const exploreRoutes      = require('./routes/explore');
++const bookingsRoutes     = require('./routes/bookings');
++const checkoutRoutes     = require('./routes/checkout');
++const aiRoutes           = require('./routes/ai');
++const ragRoutes          = require('./routes/rag');
++const notificationsRoutes = require('./routes/notifications');
+ 
+ const app = express();
+ const PORT = process.env.PORT || 3000;
+@@ -75,6 +77,10 @@ app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE'], allo
+ app.use(express.json());
+ app.use(express.urlencoded({ extended: true }));
+ 
++// Halaman statis untuk testing (mis. public/push-test.html untuk uji coba
++// push notification secara manual tanpa perlu build app).
++app.use(express.static(require('path').join(__dirname, '..', 'public')));
++
+ if (process.env.NODE_ENV === 'development') {
+   app.use((req, _res, next) => {
+     console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+@@ -89,6 +95,7 @@ app.use('/api/bookings', bookingsRoutes);
+ app.use('/api/checkout', checkoutRoutes);
+ app.use('/api/ai',       aiRoutes);
+ app.use('/api/rag',      ragRoutes); // endpoint debug RAG
++app.use('/api/notifications', notificationsRoutes);
+ 
+ app.get('/health', async (_req, res) => {
+   const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings').catch(() => ({ rows: [{ count: 0 }] }));
+@@ -103,17 +110,18 @@ app.get('/health', async (_req, res) => {
+ 
+ app.get('/', (_req, res) => {
+   res.json({
+-    message: '🌴 Sasacation API — RAG + pgvector + Ollama',
+-    version: '3.0.0',
++    message: '🌴 Sasacation API — RAG + pgvector + Ollama + Firebase',
++    version: '3.1.0',
+     stack: { database: 'PostgreSQL (DBngin) + pgvector', llm: OLLAMA_MODEL, embedding: OLLAMA_EMBED_MODEL },
+     endpoints: {
+-      auth:     'POST /api/auth/login | /register | /social | GET /api/auth/me',
+-      hotels:   'GET /api/hotels | /api/hotels/:id',
+-      explore:  'GET /api/explore | /api/explore/categories | /destinations | /restaurants',
+-      bookings: 'GET /api/bookings/my | /api/bookings/:id | PATCH /api/bookings/:id/cancel',
+-      checkout: 'POST /api/checkout/initiate | /api/checkout/pay | GET /api/checkout/methods',
+-      ai:       'POST /api/ai/chat | /api/ai/search | /api/ai/trip-plan | /api/ai/generate-description',
+-      rag:      'GET /api/rag/search?q=... (debug endpoint, murni similarity search)',
++      auth:          'POST /api/auth/login | /register | /social (deprecated) | /firebase | GET /api/auth/me | PATCH /api/auth/location',
++      hotels:        'GET /api/hotels | /api/hotels/nearby?lat=&lng=&radius= | /api/hotels/:id',
++      explore:       'GET /api/explore | /api/explore/categories | /destinations | /restaurants',
++      bookings:      'GET /api/bookings/my | /api/bookings/:id | PATCH /api/bookings/:id/cancel',
++      checkout:      'POST /api/checkout/initiate | /api/checkout/pay | GET /api/checkout/methods',
++      ai:            'POST /api/ai/chat | /api/ai/search | /api/ai/trip-plan | /api/ai/generate-description',
++      rag:           'GET /api/rag/search?q=... (debug endpoint, murni similarity search)',
++      notifications: 'POST /api/notifications/register-token | /test | DELETE /api/notifications/token',
+     },
+   });
+ });
+@@ -132,6 +140,9 @@ app.listen(PORT, async () => {
+   await checkPostgres();
+   await checkOllama();
+   await checkEmbeddingCount();
++  console.log(isFirebaseReady()
++    ? '✅ Firebase Admin siap — login Firebase & push notification aktif'
++    : '⚠️  Firebase Admin belum dikonfigurasi — isi FIREBASE_SERVICE_ACCOUNT_PATH di .env');
+ 
+   console.log(`\nAkun default:`);
+   console.log(`  Admin → admin@sasacation.com / admin123`);
+diff --git a/src/routes/auth.js b/src/routes/auth.js
+index 0da76ca..4d13343 100644
+--- a/src/routes/auth.js
++++ b/src/routes/auth.js
+@@ -1,12 +1,14 @@
+ const express = require('express');
+ const router = express.Router();
+-const { register, login, socialLogin, getMe, updateProfile } = require('../controllers/authController');
++const { register, login, socialLogin, firebaseLogin, getMe, updateProfile, updateLocation } = require('../controllers/authController');
+ const { authMiddleware } = require('../middleware/auth');
+ 
+ router.post('/register', register);
+ router.post('/login', login);
+-router.post('/social', socialLogin);
++router.post('/social', socialLogin); // deprecated: tidak verifikasi provider, dipertahankan untuk kompatibilitas lama
++router.post('/firebase', firebaseLogin); // rekomendasi: login via Firebase Auth (idToken diverifikasi)
+ router.get('/me', authMiddleware, getMe);
+ router.put('/profile', authMiddleware, updateProfile);
++router.patch('/location', authMiddleware, updateLocation);
+ 
+ module.exports = router;
+diff --git a/src/routes/hotels.js b/src/routes/hotels.js
+index dce752c..75f05b2 100644
+--- a/src/routes/hotels.js
++++ b/src/routes/hotels.js
+@@ -1,8 +1,9 @@
+ const express = require('express');
+ const router = express.Router();
+-const { getHotels, getHotelById } = require('../controllers/hotelsController');
++const { getHotels, getHotelById, getNearbyHotels } = require('../controllers/hotelsController');
+ 
+ router.get('/', getHotels);
++router.get('/nearby', getNearbyHotels); // HARUS sebelum /:id, kalau tidak "nearby" akan tertangkap sebagai :id
+ router.get('/:id', getHotelById);
+ 
+ module.exports = router;
+diff --git a/src/routes/notifications.js b/src/routes/notifications.js
+new file mode 100644
+index 0000000..ae92dfe
+--- /dev/null
++++ b/src/routes/notifications.js
+@@ -0,0 +1,10 @@
++const express = require('express');
++const router = express.Router();
++const { registerToken, unregisterToken, sendTestNotification } = require('../controllers/notificationsController');
++const { authMiddleware } = require('../middleware/auth');
++
++router.post('/register-token', authMiddleware, registerToken);
++router.delete('/token', authMiddleware, unregisterToken);
++router.post('/test', authMiddleware, sendTestNotification);
++
++module.exports = router;
+diff --git a/src/scripts/sendTestPush.js b/src/scripts/sendTestPush.js
+new file mode 100644
+index 0000000..0bc8cb0
+--- /dev/null
++++ b/src/scripts/sendTestPush.js
+@@ -0,0 +1,46 @@
++#!/usr/bin/env node
++// src/scripts/sendTestPush.js
++//
++// CLI kecil untuk uji coba push notification langsung dari terminal, tanpa
++// perlu server Express berjalan dan tanpa perlu login/JWT. Berguna untuk
++// memverifikasi cepat apakah kredensial Firebase Admin SDK dan FCM device
++// token sudah benar.
++//
++// Pemakaian:
++//   npm run push:test -- <fcm_token> ["Judul"] ["Isi pesan"]
++//
++// Contoh:
++//   npm run push:test -- dEf456...xyz "Halo" "Test dari CLI"
++
++require('dotenv').config();
++const { sendToToken } = require('../services/notificationService');
++const { isFirebaseReady } = require('../config/firebase');
++
++async function main() {
++  const [token, title, body] = process.argv.slice(2);
++
++  if (!isFirebaseReady()) {
++    console.error('❌ Firebase Admin belum dikonfigurasi. Isi FIREBASE_SERVICE_ACCOUNT_PATH atau FIREBASE_SERVICE_ACCOUNT_JSON di .env terlebih dahulu.');
++    process.exit(1);
++  }
++
++  if (!token) {
++    console.error('❌ FCM device token wajib diisi.');
++    console.error('   Pemakaian: npm run push:test -- <fcm_token> ["Judul"] ["Isi pesan"]');
++    process.exit(1);
++  }
++
++  try {
++    const messageId = await sendToToken(
++      token,
++      { title: title || 'Test Notifikasi Sasacation', body: body || 'Ini pesan test push notification dari CLI 🌴' }
++    );
++    console.log('✅ Push notification terkirim!');
++    console.log('   Message ID:', messageId);
++  } catch (err) {
++    console.error('❌ Gagal mengirim push notification:', err.message);
++    process.exit(1);
++  }
++}
++
++main();
+diff --git a/src/services/notificationService.js b/src/services/notificationService.js
+new file mode 100644
+index 0000000..e4e1dd7
+--- /dev/null
++++ b/src/services/notificationService.js
+@@ -0,0 +1,72 @@
++// src/services/notificationService.js
++// Wrapper tipis di atas Firebase Admin Messaging untuk mengirim push
++// notification. Dipakai oleh notificationsController (endpoint test/broadcast)
++// dan bisa dipanggil dari controller lain nanti (mis. saat booking dikonfirmasi).
++
++const { admin, requireFirebase } = require('../config/firebase');
++
++/**
++ * Kirim notifikasi ke satu device token.
++ * @param {string} token - FCM registration token milik device.
++ * @param {{title:string, body:string}} notification
++ * @param {Record<string,string>} [data] - payload tambahan (opsional), semua value harus string.
++ */
++async function sendToToken(token, notification, data = {}) {
++  requireFirebase();
++  if (!token) throw new Error('FCM token kosong');
++
++  const message = {
++    token,
++    notification,
++    data,
++    android: {
++      priority: 'high',
++      notification: { channelId: 'sasacation_default', sound: 'default' },
++    },
++    apns: {
++      payload: { aps: { sound: 'default', 'content-available': 1 } },
++    },
++  };
++
++  return admin.messaging().send(message);
++}
++
++/**
++ * Kirim notifikasi ke banyak token sekaligus (maks 500 per panggilan sesuai limit FCM).
++ * Mengembalikan ringkasan sukses/gagal per token supaya token yang sudah tidak
++ * valid (uninstalled/expired) bisa dibersihkan oleh pemanggil.
++ */
++async function sendToTokens(tokens, notification, data = {}) {
++  requireFirebase();
++  const validTokens = (tokens || []).filter(Boolean);
++  if (validTokens.length === 0) return { successCount: 0, failureCount: 0, invalidTokens: [] };
++
++  const message = {
++    tokens: validTokens,
++    notification,
++    data,
++    android: { priority: 'high', notification: { channelId: 'sasacation_default', sound: 'default' } },
++    apns: { payload: { aps: { sound: 'default', 'content-available': 1 } } },
++  };
++
++  const response = await admin.messaging().sendEachForMulticast(message);
++  const invalidTokens = [];
++  response.responses.forEach((r, i) => {
++    if (!r.success) {
++      const code = r.error?.code || '';
++      if (code.includes('registration-token-not-registered') || code.includes('invalid-argument')) {
++        invalidTokens.push(validTokens[i]);
++      }
++    }
++  });
++
++  return { successCount: response.successCount, failureCount: response.failureCount, invalidTokens };
++}
++
++/** Kirim notifikasi ke topic (mis. 'promo', 'all-users'). */
++async function sendToTopic(topic, notification, data = {}) {
++  requireFirebase();
++  return admin.messaging().send({ topic, notification, data });
++}
++
++module.exports = { sendToToken, sendToTokens, sendToTopic };

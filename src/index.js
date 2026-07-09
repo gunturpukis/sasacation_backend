@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const pool = require('./config/db');
+const { isFirebaseReady } = require('./config/firebase');
 
 // ─── Validasi environment variables ──────────────────────────────────────────
 const requiredEnv = ['JWT_SECRET', 'DATABASE_URL'];
@@ -60,13 +61,14 @@ async function checkEmbeddingCount() {
   }
 }
 
-const authRoutes     = require('./routes/auth');
-const hotelsRoutes   = require('./routes/hotels');
-const exploreRoutes  = require('./routes/explore');
-const bookingsRoutes = require('./routes/bookings');
-const checkoutRoutes = require('./routes/checkout');
-const aiRoutes       = require('./routes/ai');
-const ragRoutes      = require('./routes/rag');
+const authRoutes         = require('./routes/auth');
+const hotelsRoutes       = require('./routes/hotels');
+const exploreRoutes      = require('./routes/explore');
+const bookingsRoutes     = require('./routes/bookings');
+const checkoutRoutes     = require('./routes/checkout');
+const aiRoutes           = require('./routes/ai');
+const ragRoutes          = require('./routes/rag');
+const notificationsRoutes = require('./routes/notifications');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,6 +76,10 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE'], allowedHeaders: ['Content-Type','Authorization'] }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Halaman statis untuk testing (mis. public/push-test.html untuk uji coba
+// push notification secara manual tanpa perlu build app).
+app.use(express.static(require('path').join(__dirname, '..', 'public')));
 
 if (process.env.NODE_ENV === 'development') {
   app.use((req, _res, next) => {
@@ -89,6 +95,7 @@ app.use('/api/bookings', bookingsRoutes);
 app.use('/api/checkout', checkoutRoutes);
 app.use('/api/ai',       aiRoutes);
 app.use('/api/rag',      ragRoutes); // endpoint debug RAG
+app.use('/api/notifications', notificationsRoutes);
 
 app.get('/health', async (_req, res) => {
   const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings').catch(() => ({ rows: [{ count: 0 }] }));
@@ -103,17 +110,18 @@ app.get('/health', async (_req, res) => {
 
 app.get('/', (_req, res) => {
   res.json({
-    message: '🌴 Sasacation API — RAG + pgvector + Ollama',
-    version: '3.0.0',
+    message: '🌴 Sasacation API — RAG + pgvector + Ollama + Firebase',
+    version: '3.1.0',
     stack: { database: 'PostgreSQL (DBngin) + pgvector', llm: OLLAMA_MODEL, embedding: OLLAMA_EMBED_MODEL },
     endpoints: {
-      auth:     'POST /api/auth/login | /register | /social | GET /api/auth/me',
-      hotels:   'GET /api/hotels | /api/hotels/:id',
-      explore:  'GET /api/explore | /api/explore/categories | /destinations | /restaurants',
-      bookings: 'GET /api/bookings/my | /api/bookings/:id | PATCH /api/bookings/:id/cancel',
-      checkout: 'POST /api/checkout/initiate | /api/checkout/pay | GET /api/checkout/methods',
-      ai:       'POST /api/ai/chat | /api/ai/search | /api/ai/trip-plan | /api/ai/generate-description',
-      rag:      'GET /api/rag/search?q=... (debug endpoint, murni similarity search)',
+      auth:          'POST /api/auth/login | /register | /social (deprecated) | /firebase | GET /api/auth/me | PATCH /api/auth/location',
+      hotels:        'GET /api/hotels | /api/hotels/nearby?lat=&lng=&radius= | /api/hotels/:id',
+      explore:       'GET /api/explore | /api/explore/categories | /destinations | /restaurants',
+      bookings:      'GET /api/bookings/my | /api/bookings/:id | PATCH /api/bookings/:id/cancel',
+      checkout:      'POST /api/checkout/initiate | /api/checkout/pay | GET /api/checkout/methods',
+      ai:            'POST /api/ai/chat | /api/ai/search | /api/ai/trip-plan | /api/ai/generate-description',
+      rag:           'GET /api/rag/search?q=... (debug endpoint, murni similarity search)',
+      notifications: 'POST /api/notifications/register-token | /test | DELETE /api/notifications/token',
     },
   });
 });
@@ -132,6 +140,9 @@ app.listen(PORT, async () => {
   await checkPostgres();
   await checkOllama();
   await checkEmbeddingCount();
+  console.log(isFirebaseReady()
+    ? '✅ Firebase Admin siap — login Firebase & push notification aktif'
+    : '⚠️  Firebase Admin belum dikonfigurasi — isi FIREBASE_SERVICE_ACCOUNT_PATH di .env');
 
   console.log(`\nAkun default:`);
   console.log(`  Admin → admin@sasacation.com / admin123`);
