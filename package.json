@@ -10,6 +10,7 @@
     "db:seed": "node src/config/seedDB.js",
     "rag:index": "node src/services/ragIndexer.js",
     "db:migrate:firebase-geo": "node src/config/migrateFirebaseGeo.js",
+    "db:migrate:payment-gateway": "node src/config/migratePaymentGateway.js",
     "push:test": "node src/scripts/sendTestPush.js"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "express": "^4.18.2",
     "firebase-admin": "^12.7.0",
     "jsonwebtoken": "^9.0.2",
+    "midtrans-client": "^1.3.1",
     "pg": "^8.12.0",
     "uuid": "^9.0.0"
   },

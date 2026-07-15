@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const midtransService = require('../services/midtransService');
 
 const PAYMENT_METHODS = [
   { id: 'credit_card',   label: 'Kartu Kredit / Debit', icon: 'credit_card',           available: true },
@@ -8,6 +9,15 @@ const PAYMENT_METHODS = [
   { id: 'dana',          label: 'DANA',                  icon: 'account_balance_wallet', available: true },
   { id: 'qris',          label: 'QRIS',                  icon: 'qr_code_scanner',        available: true },
 ];
+
+// Midtrans (region Indonesia) hanya menerima gross_amount dalam IDR — tidak
+// ada parameter currency di Snap API standar. Harga Sasacation ditampilkan
+// dalam USD, jadi perlu dikonversi SAAT membuat transaksi ke Midtrans saja
+// (tampilan USD di app/DB tidak berubah). Rate di-env-kan supaya gampang
+// disesuaikan, TAPI ini tetap simplifikasi — untuk production sebaiknya
+// harga disimpan native dalam IDR, karena kurs realtime butuh third-party
+// rate provider yang juga perlu di-refresh berkala.
+const USD_TO_IDR_RATE = Number(process.env.MIDTRANS_USD_TO_IDR_RATE || 16000);
 
 // GET /api/checkout/methods
 const getPaymentMethods = (_req, res) => {
@@ -63,8 +73,11 @@ const initiateCheckout = async (req, res) => {
 };
 
 // POST /api/checkout/pay
-// Simpan booking + payment ke PostgreSQL dalam SATU transaksi (atomic)
-// Kalau salah satu gagal (misal insert payment error), booking ikut di-rollback
+// FIX UTAMA: sebelumnya endpoint ini langsung set payment.status = 'success'
+// tanpa pernah menyentuh payment gateway — sekarang booking + payment dibuat
+// dalam status 'pending', lalu transaksi Snap Midtrans dibuat dan snapToken
+// dikembalikan ke client untuk membuka halaman pembayaran asli. Status baru
+// benar-benar jadi 'success'/'failed' lewat webhook (lihat handleWebhook).
 const processPayment = async (req, res) => {
   const client = await pool.connect();
   try {
@@ -89,7 +102,8 @@ const processPayment = async (req, res) => {
 
     await client.query('BEGIN');
 
-    // 1. Buat booking
+    // 1. Buat booking (tetap 'confirmed' — kalau pembayaran gagal/expired,
+    //    webhook yang akan membatalkannya, lihat handleWebhook di bawah)
     const bookingResult = await client.query(`
       INSERT INTO bookings (booking_code, user_id, hotel_id, check_in, check_out, nights, guest_count, price_per_night, total_price, notes, status)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'confirmed')
@@ -97,28 +111,39 @@ const processPayment = async (req, res) => {
     `, [bookingCode, req.user.id, hotelId, checkInDate, checkOutDate, nights, guestCount, pricePerNight, total, notes || '']);
     const booking = bookingResult.rows[0];
 
-    // 2. Buat payment, terhubung ke booking yang baru dibuat
+    // 2. Buat payment dengan status 'pending' — BUKAN 'success' lagi
     const paymentResult = await client.query(`
-      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status, paid_at)
-      VALUES ($1,$2,$3,$4,$5,'USD','success',NOW())
+      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status)
+      VALUES ($1,$2,$3,$4,$5,'USD','pending')
       RETURNING *
     `, [transactionId, booking.id, req.user.id, paymentMethod, total]);
     const payment = paymentResult.rows[0];
+
+    // 3. Buat transaksi Snap di Midtrans SEBELUM commit — kalau Midtrans
+    //    error (misal server key salah), seluruh insert di atas ikut rollback
+    //    supaya tidak ada booking "hantu" tanpa transaksi gateway yang valid.
+    const snapResult = await midtransService.createTransaction({
+      orderId: transactionId,
+      grossAmount: total * USD_TO_IDR_RATE,
+      customer: { name: req.user.name, email: req.user.email },
+      itemName: `Sasacation - ${hotel.name} (${nights} malam)`,
+    });
 
     await client.query('COMMIT');
 
     res.json({
       success: true,
-      message: 'Pembayaran berhasil!',
+      message: 'Silakan selesaikan pembayaran',
       data: {
         booking: { ...booking, hotel: { id: hotel.id, name: hotel.name, location: hotel.location, image: hotel.image } },
         payment: {
           transactionId: payment.transaction_id,
           method: payment.method,
           amount: Number(payment.amount),
-          status: payment.status,
-          paidAt: payment.paid_at,
+          status: payment.status, // 'pending'
         },
+        snapToken: snapResult.token,
+        redirectUrl: snapResult.redirect_url,
       },
     });
   } catch (e) {
@@ -129,4 +154,74 @@ const processPayment = async (req, res) => {
   }
 };
 
-module.exports = { getPaymentMethods, initiateCheckout, processPayment };
+// POST /api/checkout/webhook/midtrans
+// Dipanggil oleh SERVER Midtrans (bukan oleh app Flutter), jadi TIDAK pakai
+// authMiddleware. Keamanannya bergantung sepenuhnya pada verifikasi
+// signature_key, bukan token JWT.
+const handleMidtransWebhook = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const {
+      order_id: orderId,
+      status_code: statusCode,
+      gross_amount: grossAmount,
+      signature_key: signatureKey,
+      transaction_status: transactionStatus,
+      fraud_status: fraudStatus,
+    } = req.body;
+
+    const isValid = midtransService.verifySignature({ orderId, statusCode, grossAmount, signatureKey });
+    if (!isValid) {
+      // Selalu balas 200 ke Midtrans supaya tidak retry terus, tapi JANGAN
+      // proses apapun kalau signature tidak valid (mencegah spoofing).
+      console.warn(`[midtrans webhook] signature tidak valid untuk order_id=${orderId}`);
+      return res.status(200).json({ success: false, message: 'Invalid signature' });
+    }
+
+    const newStatus = midtransService.mapTransactionStatus(transactionStatus, fraudStatus);
+
+    await client.query('BEGIN');
+
+    const paymentResult = await client.query(
+      `UPDATE payments
+       SET status = $1,
+           paid_at = CASE WHEN $1 = 'success' THEN NOW() ELSE paid_at END,
+           gateway_response = $2
+       WHERE transaction_id = $3
+       RETURNING *`,
+      [newStatus, JSON.stringify(req.body), orderId]
+    );
+
+    if (paymentResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      console.warn(`[midtrans webhook] payment dengan transaction_id=${orderId} tidak ditemukan`);
+      return res.status(200).json({ success: false, message: 'Payment not found' });
+    }
+
+    const payment = paymentResult.rows[0];
+
+    // Kalau pembayaran gagal/expired, booking terkait ikut dibatalkan
+    // otomatis — jangan biarkan booking 'confirmed' menggantung tanpa
+    // pembayaran yang valid.
+    if (newStatus === 'failed') {
+      await client.query(
+        `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status = 'confirmed'`,
+        [payment.booking_id]
+      );
+    }
+
+    await client.query('COMMIT');
+    console.log(`[midtrans webhook] order_id=${orderId} -> ${newStatus}`);
+    res.status(200).json({ success: true });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('[midtrans webhook] error:', e.message);
+    // Tetap 200 supaya Midtrans tidak spam-retry kalau errornya di sisi kita
+    // sendiri (mis. DB down sesaat) — bisa direkonsiliasi manual lewat log.
+    res.status(200).json({ success: false, message: 'Internal error' });
+  } finally {
+    client.release();
+  }
+};
+
+module.exports = { getPaymentMethods, initiateCheckout, processPayment, handleMidtransWebhook };
