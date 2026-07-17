@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const midtransService = require('../services/midtransService');
+const { sendToToken } = require('../services/notificationService');
  
 const PAYMENT_METHODS = [
   { id: 'credit_card',   label: 'Kartu Kredit / Debit', icon: 'credit_card',           available: true },
@@ -218,6 +219,16 @@ const handleMidtransWebhook = async (req, res) => {
     await client.query('COMMIT');
     console.log(`[midtrans webhook] order_id=${orderId} -> ${newStatus}`);
     res.status(200).json({ success: true });
+ 
+    // Push notification dikirim SETELAH response ke Midtrans, di luar
+    // transaksi DB — kalau gagal kirim (Firebase belum diset, token user
+    // kosong/expired, dll), itu TIDAK BOLEH menggagalkan konfirmasi
+    // pembayaran yang sudah tercatat sukses. Cukup di-log.
+    if (newStatus === 'success') {
+      notifyPaymentSuccess(payment.booking_id, payment.user_id).catch((err) =>
+        console.error('[midtrans webhook] gagal kirim push notification:', err.message)
+      );
+    }
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('[midtrans webhook] error:', e.message);
@@ -228,6 +239,40 @@ const handleMidtransWebhook = async (req, res) => {
     client.release();
   }
 };
+ 
+// Ambil FCM token + detail booking, lalu kirim push notification konfirmasi
+// pembayaran. Dipisah dari handleMidtransWebhook supaya fungsi utamanya
+// tetap fokus ke update status pembayaran, bukan detail notifikasi.
+async function notifyPaymentSuccess(bookingId, userId) {
+  const { rows } = await pool.query(
+    `SELECT u.fcm_token, b.booking_code, b.check_in, h.name AS hotel_name
+     FROM bookings b
+     JOIN hotels h ON h.id = b.hotel_id
+     JOIN users u ON u.id = $2
+     WHERE b.id = $1`,
+    [bookingId, userId]
+  );
+ 
+  const row = rows[0];
+  if (!row?.fcm_token) return; // user belum register FCM token dari device manapun — skip diam-diam
+ 
+  const checkInLabel = new Date(row.check_in).toLocaleDateString('id-ID', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
+ 
+  await sendToToken(
+    row.fcm_token,
+    {
+      title: 'Pembayaran Berhasil! 🎉',
+      body: `Booking ${row.booking_code} di ${row.hotel_name} sudah dikonfirmasi. Check-in: ${checkInLabel}.`,
+    },
+    {
+      type: 'payment_success',
+      bookingId: String(bookingId),
+      bookingCode: row.booking_code,
+    }
+  );
+}
  
 // GET /api/checkout/status/:transactionId
 // Dipanggil app Flutter untuk polling status setelah membuka halaman Snap —

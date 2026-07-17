@@ -52,24 +52,6 @@ async function createTransaction({ orderId, grossAmount, customer, itemName, ena
 }
  
 /**
- * Petakan payment method yang dipilih user di app ke kode channel Midtrans.
- * PENTING: OVO dan DANA TIDAK punya kode channel langsung di Midtrans
- * (beda dari Xendit) — keduanya diproses lewat QRIS (user scan QR pakai
- * app OVO/DANA-nya). Jadi kedua opsi itu sengaja diarahkan ke 'qris'.
- */
-function mapToEnabledPayments(paymentMethod) {
-  const map = {
-    credit_card: ['credit_card'],
-    bank_transfer: ['bca_va', 'bni_va', 'bri_va', 'permata_va', 'other_va'],
-    gopay: ['gopay'],
-    ovo: ['qris'],
-    dana: ['qris'],
-    qris: ['qris'],
-  };
-  return map[paymentMethod] || undefined; // undefined -> Snap tampilkan semua metode
-}
- 
-/**
  * Verifikasi signature webhook Midtrans supaya tidak ada pihak lain yang bisa
  * memalsukan notifikasi "pembayaran sukses" ke server kita.
  * Formula resmi Midtrans: SHA512(order_id + status_code + gross_amount + ServerKey)
@@ -94,6 +76,30 @@ function mapTransactionStatus(midtransStatus, fraudStatus) {
   if (midtransStatus === 'pending') return 'pending';
   if (['deny', 'cancel', 'expire', 'failure'].includes(midtransStatus)) return 'failed';
   return 'pending';
+}
+ 
+/**
+ * Petakan payment method yang dipilih user di app ke kode channel Midtrans.
+ *
+ * Kode-kode ini SUDAH diverifikasi lewat response resmi Midtrans Preference
+ * API (bukan tebakan lagi) — percobaan pertama sempat gagal ("No payment
+ * channels available") karena salah pakai kode 'qris' yang sebenarnya TIDAK
+ * VALID; kode yang benar adalah 'other_qris'.
+ *
+ * PENTING: OVO dan DANA TIDAK punya kode channel langsung di Midtrans (beda
+ * dari Xendit) — keduanya diproses lewat QRIS (user scan QR pakai app
+ * OVO/DANA-nya), jadi diarahkan ke 'other_qris'.
+ */
+function mapToEnabledPayments(paymentMethod) {
+  const map = {
+    credit_card: ['credit_card'],
+    bank_transfer: ['bca_va', 'bni_va', 'bri_va', 'permata_va', 'other_va', 'echannel'],
+    gopay: ['gopay'],
+    ovo: ['other_qris'],
+    dana: ['other_qris'],
+    qris: ['other_qris'],
+  };
+  return map[paymentMethod] || undefined; // undefined -> Snap tampilkan semua channel (fallback aman)
 }
  
 module.exports = { createTransaction, verifySignature, mapTransactionStatus, mapToEnabledPayments };
