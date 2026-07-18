@@ -222,6 +222,7 @@ const checkoutRoutes     = require('./routes/checkout');
 const aiRoutes           = require('./routes/ai');
 const ragRoutes          = require('./routes/rag');
 const notificationsRoutes = require('./routes/notifications');
+const partnersRoutes     = require('./routes/partners');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -249,6 +250,7 @@ app.use('/api/checkout', checkoutRoutes);
 app.use('/api/ai',       aiRoutes);
 app.use('/api/rag',      ragRoutes); // endpoint debug RAG
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/partners', partnersRoutes);
 
 app.get('/health', async (_req, res) => {
   const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings').catch(() => ({ rows: [{ count: 0 }] }));
@@ -268,13 +270,14 @@ app.get('/', (_req, res) => {
     stack: { database: 'PostgreSQL (DBngin) + pgvector', llm: OLLAMA_MODEL, embedding: OLLAMA_EMBED_MODEL },
     endpoints: {
       auth:          'POST /api/auth/login | /register | /social (deprecated) | /firebase | GET /api/auth/me | PATCH /api/auth/location',
-      hotels:        'GET /api/hotels | /api/hotels/nearby?lat=&lng=&radius= | /api/hotels/:id',
+      hotels:        'GET /api/hotels | /api/hotels/nearby?lat=&lng=&radius= | /api/hotels/:id | /api/hotels/my (partner) | POST/PUT/DELETE /api/hotels (partner/admin)',
       explore:       'GET /api/explore | /api/explore/categories | /destinations | /restaurants',
       bookings:      'GET /api/bookings/my | /api/bookings/:id | PATCH /api/bookings/:id/cancel',
       checkout:      'POST /api/checkout/initiate | /api/checkout/pay | GET /api/checkout/methods | POST /api/checkout/webhook/midtrans (internal, dipanggil Midtrans)',
       ai:            'POST /api/ai/chat | /api/ai/search | /api/ai/trip-plan | /api/ai/generate-description',
       rag:           'GET /api/rag/search?q=... (debug endpoint, murni similarity search)',
       notifications: 'POST /api/notifications/register-token | /test | DELETE /api/notifications/token',
+      partners:      'POST /api/partners/apply | GET/PUT /api/partners/me | GET /api/partners/admin/all | PATCH /api/partners/admin/:id/approve|reject (admin only)',
     },
   });
 });

@@ -85,4 +85,135 @@ const getNearbyHotels = async (req, res) => {
   }
 };
 
-module.exports = { getHotels, getHotelById, getNearbyHotels };
+// Ambil property_id milik user yang login (harus 'verified'). Dipakai untuk
+// membatasi mitra hanya bisa kelola hotel milik properti mereka sendiri.
+async function getOwnedPropertyId(userId) {
+  const { rows } = await pool.query(
+    `SELECT id FROM properties WHERE owner_id = $1 AND status = 'verified'`,
+    [userId]
+  );
+  return rows[0]?.id || null;
+}
+
+// GET /api/hotels/my
+// Auth: partner (atau admin). Daftar hotel milik properti sendiri — beda
+// dari GET /hotels yang publik dan cuma nampilin available=true.
+const getMyHotels = async (req, res) => {
+  try {
+    if (req.user.role === 'admin') {
+      // Admin tanpa properti sendiri: tampilkan semua hotel utk oversight.
+      const { rows } = await pool.query('SELECT * FROM hotels ORDER BY created_at DESC');
+      return res.json({ success: true, data: rows });
+    }
+
+    const propertyId = await getOwnedPropertyId(req.user.id);
+    if (!propertyId)
+      return res.status(403).json({ success: false, message: 'Anda belum menjadi mitra terverifikasi' });
+
+    const { rows } = await pool.query(
+      'SELECT * FROM hotels WHERE property_id = $1 ORDER BY created_at DESC',
+      [propertyId]
+    );
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+// POST /api/hotels
+// Auth: partner (atau admin). property_id SELALU diambil dari akun yang
+// login (bukan dari body request) — supaya mitra tidak bisa membuat hotel
+// atas nama properti mitra lain.
+const createHotel = async (req, res) => {
+  try {
+    const { name, location, address, price, description, amenities, image, images, latitude, longitude } = req.body;
+    if (!name || !location || !price)
+      return res.status(400).json({ success: false, message: 'name, location, price wajib diisi' });
+
+    let propertyId = null;
+    if (req.user.role !== 'admin') {
+      propertyId = await getOwnedPropertyId(req.user.id);
+      if (!propertyId)
+        return res.status(403).json({ success: false, message: 'Anda belum menjadi mitra terverifikasi' });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO hotels (name, location, address, price, description, amenities, image, images, latitude, longitude, property_id, available)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true)
+       RETURNING *`,
+      [
+        name, location, address || null, price, description || null,
+        amenities || [], image || '', images || [],
+        latitude ?? null, longitude ?? null, propertyId,
+      ]
+    );
+    res.status(201).json({ success: true, message: 'Hotel berhasil dibuat', data: rows[0] });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+// Cek apakah req.user berhak mengubah hotel ini (pemilik properti terkait,
+// atau admin). Return hotel row kalau boleh, null kalau tidak ditemukan,
+// throw kalau ditemukan tapi tidak berhak (403).
+async function assertHotelOwnership(hotelId, user) {
+  const { rows } = await pool.query('SELECT * FROM hotels WHERE id = $1', [hotelId]);
+  if (rows.length === 0) return { hotel: null, forbidden: false };
+  const hotel = rows[0];
+  if (user.role === 'admin') return { hotel, forbidden: false };
+
+  const propertyId = await getOwnedPropertyId(user.id);
+  const forbidden = !propertyId || hotel.property_id !== propertyId;
+  return { hotel, forbidden };
+}
+
+// PUT /api/hotels/:id
+const updateHotel = async (req, res) => {
+  try {
+    const { hotel, forbidden } = await assertHotelOwnership(req.params.id, req.user);
+    if (!hotel) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
+    if (forbidden) return res.status(403).json({ success: false, message: 'Anda tidak berhak mengubah hotel ini' });
+
+    const { name, location, address, price, description, amenities, image, images, latitude, longitude, available } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE hotels SET
+         name        = COALESCE($1, name),
+         location    = COALESCE($2, location),
+         address     = COALESCE($3, address),
+         price       = COALESCE($4, price),
+         description = COALESCE($5, description),
+         amenities   = COALESCE($6, amenities),
+         image       = COALESCE($7, image),
+         images      = COALESCE($8, images),
+         latitude    = COALESCE($9, latitude),
+         longitude   = COALESCE($10, longitude),
+         available   = COALESCE($11, available),
+         updated_at  = NOW()
+       WHERE id = $12
+       RETURNING *`,
+      [name, location, address, price, description, amenities, image, images, latitude, longitude, available, req.params.id]
+    );
+    res.json({ success: true, message: 'Hotel berhasil diperbarui', data: rows[0] });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+// DELETE /api/hotels/:id
+// Soft-delete (available = false) alih-alih hapus baris fisik — hotel bisa
+// saja masih direferensikan oleh booking lama (riwayat transaksi harus tetap
+// utuh), jadi "hapus" di sini berarti "sembunyikan dari listing publik".
+const deleteHotel = async (req, res) => {
+  try {
+    const { hotel, forbidden } = await assertHotelOwnership(req.params.id, req.user);
+    if (!hotel) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
+    if (forbidden) return res.status(403).json({ success: false, message: 'Anda tidak berhak menghapus hotel ini' });
+
+    await pool.query(`UPDATE hotels SET available = false, updated_at = NOW() WHERE id = $1`, [req.params.id]);
+    res.json({ success: true, message: 'Hotel berhasil dinonaktifkan dari listing' });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+module.exports = { getHotels, getHotelById, getNearbyHotels, getMyHotels, createHotel, updateHotel, deleteHotel };

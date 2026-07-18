@@ -27,4 +27,13 @@ const adminMiddleware = (req, res, next) => {
   next();
 };
 
-module.exports = { authMiddleware, adminMiddleware };
+// Dipakai untuk endpoint khusus mitra (kelola properti, hotel sendiri, dst).
+// Admin juga diloloskan supaya bisa melakukan oversight/troubleshooting atas
+// nama mitra tanpa perlu akun terpisah.
+const partnerMiddleware = (req, res, next) => {
+  if (req.user?.role !== 'partner' && req.user?.role !== 'admin')
+    return res.status(403).json({ success: false, message: 'Akses ditolak. Hanya untuk mitra terverifikasi.' });
+  next();
+};
+
+module.exports = { authMiddleware, adminMiddleware, partnerMiddleware };

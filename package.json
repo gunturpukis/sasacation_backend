@@ -11,6 +11,7 @@
     "rag:index": "node src/services/ragIndexer.js",
     "db:migrate:firebase-geo": "node src/config/migrateFirebaseGeo.js",
     "db:migrate:payment-gateway": "node src/config/migratePaymentGateway.js",
+    "db:migrate:partners": "node src/config/migratePartners.js",
     "push:test": "node src/scripts/sendTestPush.js"
   },
   "dependencies": {
