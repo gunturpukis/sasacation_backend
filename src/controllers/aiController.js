@@ -1,14 +1,45 @@
 const { chatWithAssistant, smartSearch, generateDescription, generateTripPlan } = require('../services/aiService');
+const chatSessionService = require('../services/chatSessionService');
+const { extractAndMergePreferences } = require('../services/preferenceExtractorService');
+
+// Tiap berapa pesan user, jalankan ekstraksi preferensi. 3 dipilih sebagai
+// keseimbangan: cukup sering supaya memory terasa "hidup", tapi tidak
+// memanggil LLM ekstra di SETIAP single turn (boros GPU/CPU lokal).
+const EXTRACTION_INTERVAL = 3;
 
 const chat = async (req, res) => {
   try {
-    const { messages } = req.body;
+    const { messages, sessionId } = req.body;
     if (!messages || !Array.isArray(messages) || messages.length === 0)
       return res.status(400).json({ success: false, message: 'messages wajib diisi' });
 
     const userName = req.user?.name || 'Wisatawan';
     const reply = await chatWithAssistant({ messages, userName, userId: req.user?.id });
-    res.json({ success: true, data: { reply, role: 'assistant' } });
+
+    // Persistensi & auto-extract preferensi HANYA untuk user yang login.
+    // Guest tetap bisa chat seperti biasa (backward compatible), tapi
+    // percakapannya tidak disimpan — sama seperti perilaku sebelumnya.
+    let resolvedSessionId = null;
+    if (req.user?.id) {
+      resolvedSessionId = await chatSessionService.getOrCreateSession(req.user.id, sessionId);
+
+      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content;
+      if (lastUserMessage) {
+        await chatSessionService.appendMessage(resolvedSessionId, 'user', lastUserMessage);
+      }
+      await chatSessionService.appendMessage(resolvedSessionId, 'assistant', reply);
+
+      // Fire-and-forget: TIDAK di-await supaya tidak menambah latency
+      // response chat utama. Kegagalannya sudah di-handle (log-only) di
+      // dalam extractAndMergePreferences sendiri.
+      chatSessionService.countUserMessages(resolvedSessionId).then((count) => {
+        if (count % EXTRACTION_INTERVAL !== 0) return;
+        chatSessionService.getRecentMessages(resolvedSessionId, EXTRACTION_INTERVAL * 2)
+          .then((recent) => extractAndMergePreferences(req.user.id, recent));
+      }).catch((e) => console.error('[chat] Gagal cek counter ekstraksi (diabaikan):', e.message));
+    }
+
+    res.json({ success: true, data: { reply, role: 'assistant', sessionId: resolvedSessionId } });
   } catch (e) {
     console.error('AI Chat error:', e);
     res.status(500).json({ success: false, message: 'AI service error', error: e.message });

@@ -10,6 +10,7 @@
 
 const { ragRetrieve } = require('./ragService');
 const { getUserContext } = require('./userContextService');
+const { extractJsonObject } = require('./jsonExtractor');
 
 const OLLAMA_URL   = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL    || 'llama3.1:latest';
@@ -237,18 +238,7 @@ Prioritaskan tempat dari dokumen di atas — semuanya sudah difilter relevan den
 Balas HANYA dengan objek JSON, tanpa teks tambahan.`;
 
   const raw = await ollamaChat(systemPrompt, userMessage, false);
-
-  // Brace counting untuk ekstraksi JSON yang toleran
-  const start = raw.indexOf('{');
-  if (start === -1) throw new Error('AI tidak mengembalikan JSON yang valid untuk trip plan');
-  let depth = 0, end = -1;
-  for (let i = start; i < raw.length; i++) {
-    if (raw[i] === '{') depth++;
-    if (raw[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
-  }
-  if (end === -1) throw new Error('AI mengembalikan JSON yang terpotong untuk trip plan');
-
-  return JSON.parse(raw.slice(start, end + 1));
+  return extractJsonObject(raw);
 }
 
 module.exports = { chatWithAssistant, smartSearch, generateDescription, generateTripPlan };
