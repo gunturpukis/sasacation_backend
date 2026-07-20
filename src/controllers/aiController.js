@@ -7,7 +7,7 @@ const chat = async (req, res) => {
       return res.status(400).json({ success: false, message: 'messages wajib diisi' });
 
     const userName = req.user?.name || 'Wisatawan';
-    const reply = await chatWithAssistant({ messages, userName });
+    const reply = await chatWithAssistant({ messages, userName, userId: req.user?.id });
     res.json({ success: true, data: { reply, role: 'assistant' } });
   } catch (e) {
     console.error('AI Chat error:', e);
@@ -49,7 +49,7 @@ const tripPlan = async (req, res) => {
     if (!duration || !budget || !interests?.length)
       return res.status(400).json({ success: false, message: 'duration, budget, dan interests wajib diisi' });
 
-    const plan = await generateTripPlan({ duration, budget, interests, startDate, groupType });
+    const plan = await generateTripPlan({ duration, budget, interests, startDate, groupType, userId: req.user.id });
     res.json({ success: true, data: plan });
   } catch (e) {
     console.error('Trip plan error:', e);
