@@ -9,6 +9,7 @@
 //     ringkas dan akurat, serta scalable untuk data besar)
 
 const { ragRetrieve } = require('./ragService');
+const { getUserContext } = require('./userContextService');
 
 const OLLAMA_URL   = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL    || 'llama3.1:latest';
@@ -47,8 +48,8 @@ async function ollamaChat(systemPrompt, messages, jsonMode = false) {
   return data.message.content;
 }
 
-// ─── 1. CHAT ASSISTANT (RAG) ──────────────────────────────────────────────────
-async function chatWithAssistant({ messages, userName }) {
+// ─── 1. CHAT ASSISTANT (RAG + Travel Memory) ─────────────────────────────────
+async function chatWithAssistant({ messages, userName, userId }) {
   // Ambil pesan terakhir user sebagai query untuk retrieval
   const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || '';
 
@@ -56,15 +57,22 @@ async function chatWithAssistant({ messages, userName }) {
   const { docs, context } = await ragRetrieve(lastUserMessage, { topK: 5 });
   console.log(`[RAG Chat] Ditemukan ${docs.length} dokumen relevan`);
 
+  // Konteks user: preferensi + wishlist + riwayat booking (null kalau belum login/belum ada data)
+  const userContext = await getUserContext(userId);
+  const userContextBlock = userContext
+    ? `\n\nYANG KAMU TAHU TENTANG USER INI (pakai untuk personalisasi, JANGAN sebut ulang secara mentah):\n${userContext}`
+    : '';
+
   const systemPrompt = `Kamu adalah Sasa, AI travel assistant untuk aplikasi Sasacation — platform wisata Lombok, Indonesia.
 
 KEPRIBADIAN:
 - Ramah, antusias tentang Lombok, dan membantu
 - Jawab dalam bahasa yang sama dengan user (Indonesia atau Inggris)
 - Berikan rekomendasi spesifik berdasarkan dokumen yang ditemukan di bawah
+- Kalau kamu tahu preferensi/riwayat user, gunakan itu secara halus untuk menyesuaikan rekomendasi (misal: hindari saran hiking kalau user tidak suka hiking), tapi jangan membacakan datanya secara verbatim seperti robot
 
 DOKUMEN RELEVAN (hasil pencarian similarity dari database Sasacation):
-${context}
+${context}${userContextBlock}
 
 PANDUAN:
 - HANYA gunakan informasi dari dokumen di atas. Jangan mengarang data yang tidak ada.
@@ -144,9 +152,17 @@ Tulis deskripsi yang memukau, dengan gaya konsisten seperti contoh di atas jika 
   return ollamaChat(systemPrompt, userMessage);
 }
 
-// ─── 4. TRIP PLANNER (RAG multi-query) ────────────────────────────────────────
-async function generateTripPlan({ duration, budget, interests, startDate, groupType }) {
+// ─── 4. TRIP PLANNER (RAG multi-query + Travel Memory) ────────────────────────
+async function generateTripPlan({ duration, budget, interests, startDate, groupType, userId }) {
   console.log(`[RAG Trip Plan] Interests: ${interests.join(', ')}`);
+
+  // Kalau user punya dislikes tersimpan, tambahkan sebagai constraint eksplisit —
+  // ini yang paling penting: trip planner generik tidak tahu user benci hiking,
+  // trip planner dengan memory tahu dan otomatis menghindarinya.
+  const userContext = await getUserContext(userId);
+  const userContextBlock = userContext
+    ? `\n\nKONTEKS TAMBAHAN TENTANG USER (pertimbangkan saat menyusun itinerary, terutama bagian "Tidak suka" — JANGAN masukkan aktivitas yang sesuai dengan dislikes):\n${userContext}`
+    : '';
 
   // Retrieve dokumen relevan untuk SETIAP interest secara terpisah,
   // supaya semua kategori yang diminta user terwakili di context.
@@ -215,7 +231,7 @@ Buat itinerary HANYA dalam format JSON valid berikut, tanpa teks lain:
 - Tipe grup: ${groupType || 'couple'}
 
 Dokumen tempat yang relevan (hasil RAG similarity search berdasarkan minat user):
-${context}
+${context}${userContextBlock}
 
 Prioritaskan tempat dari dokumen di atas — semuanya sudah difilter relevan dengan minat user.
 Balas HANYA dengan objek JSON, tanpa teks tambahan.`;

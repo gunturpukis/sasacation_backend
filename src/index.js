@@ -223,6 +223,8 @@ const aiRoutes           = require('./routes/ai');
 const ragRoutes          = require('./routes/rag');
 const notificationsRoutes = require('./routes/notifications');
 const partnersRoutes     = require('./routes/partners');
+const wishlistRoutes     = require('./routes/wishlist');
+const preferencesRoutes  = require('./routes/preferences');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -251,6 +253,8 @@ app.use('/api/ai',       aiRoutes);
 app.use('/api/rag',      ragRoutes); // endpoint debug RAG
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/partners', partnersRoutes);
+app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/preferences', preferencesRoutes);
 
 app.get('/health', async (_req, res) => {
   const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings').catch(() => ({ rows: [{ count: 0 }] }));
