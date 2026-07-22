@@ -10,7 +10,7 @@
 
 const { ragRetrieve } = require('./ragService');
 const { getUserContext } = require('./userContextService');
-const { extractJsonObject } = require('./jsonExtractor');
+const { runTripPlanningAgents } = require('./agentOrchestratorService');
 
 const OLLAMA_URL   = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL    || 'llama3.1:latest';
@@ -153,92 +153,20 @@ Tulis deskripsi yang memukau, dengan gaya konsisten seperti contoh di atas jika 
   return ollamaChat(systemPrompt, userMessage);
 }
 
-// ─── 4. TRIP PLANNER (RAG multi-query + Travel Memory) ────────────────────────
-async function generateTripPlan({ duration, budget, interests, startDate, groupType, userId }) {
-  console.log(`[RAG Trip Plan] Interests: ${interests.join(', ')}`);
-
-  // Kalau user punya dislikes tersimpan, tambahkan sebagai constraint eksplisit —
-  // ini yang paling penting: trip planner generik tidak tahu user benci hiking,
-  // trip planner dengan memory tahu dan otomatis menghindarinya.
-  const userContext = await getUserContext(userId);
-  const userContextBlock = userContext
-    ? `\n\nKONTEKS TAMBAHAN TENTANG USER (pertimbangkan saat menyusun itinerary, terutama bagian "Tidak suka" — JANGAN masukkan aktivitas yang sesuai dengan dislikes):\n${userContext}`
-    : '';
-
-  // Retrieve dokumen relevan untuk SETIAP interest secara terpisah,
-  // supaya semua kategori yang diminta user terwakili di context.
-  // Ini penting: kalau cuma 1 query gabungan, hasil retrieval bisa bias
-  // ke satu kategori yang paling dominan secara semantik.
-  const allDocs = [];
-  const seenIds = new Set();
-
-  for (const interest of interests) {
-    const { docs } = await ragRetrieve(`wisata ${interest} Lombok`, { topK: 4 });
-    for (const doc of docs) {
-      if (!seenIds.has(doc.doc_id)) {
-        seenIds.add(doc.doc_id);
-        allDocs.push(doc);
-      }
-    }
-  }
-
-  // Tambahan: retrieve hotel secara eksplisit untuk akomodasi
-  const { docs: hotelDocs } = await ragRetrieve(`hotel penginapan budget ${budget}`, { topK: 3, docType: 'hotel' });
-  for (const doc of hotelDocs) {
-    if (!seenIds.has(doc.doc_id)) {
-      seenIds.add(doc.doc_id);
-      allDocs.push(doc);
-    }
-  }
-
-  console.log(`[RAG Trip Plan] Total dokumen unik terkumpul: ${allDocs.length}`);
-  const context = allDocs.map(d => d.content).join('\n\n---\n\n');
-
-  const systemPrompt = `Kamu adalah trip planner expert untuk Lombok, Indonesia.
-Buat itinerary HANYA dalam format JSON valid berikut, tanpa teks lain:
-{
-  "title": "judul perjalanan",
-  "summary": "ringkasan singkat perjalanan",
-  "totalEstimatedCost": 0,
-  "days": [
-    {
-      "day": 1,
-      "date": "tanggal",
-      "title": "tema hari ini",
-      "activities": [
-        {
-          "time": "08:00",
-          "name": "nama tempat/aktivitas",
-          "type": "hotel|destination|restaurant|transport",
-          "location": "lokasi",
-          "duration": "2 jam",
-          "estimatedCost": 0,
-          "notes": "tips atau catatan",
-          "itemId": "id dari dokumen jika ada, null jika tidak"
-        }
-      ],
-      "dailyCost": 0
-    }
-  ],
-  "tips": ["tip 1", "tip 2", "tip 3"],
-  "bestTimeToVisit": "penjelasan waktu terbaik"
-}`;
-
-  const userMessage = `Buat itinerary Lombok untuk:
-- Durasi: ${duration} hari
-- Budget: $${budget} per orang
-- Minat: ${interests.join(', ')}
-- Tanggal mulai: ${startDate || 'fleksibel'}
-- Tipe grup: ${groupType || 'couple'}
-
-Dokumen tempat yang relevan (hasil RAG similarity search berdasarkan minat user):
-${context}${userContextBlock}
-
-Prioritaskan tempat dari dokumen di atas — semuanya sudah difilter relevan dengan minat user.
-Balas HANYA dengan objek JSON, tanpa teks tambahan.`;
-
-  const raw = await ollamaChat(systemPrompt, userMessage, false);
-  return extractJsonObject(raw);
+// ─── 4. TRIP PLANNER (sekarang Agent-Based Workflow) ──────────────────────────
+// SEBELUM: satu prompt raksasa berisi semua dokumen RAG mentah, LLM disuruh
+// pilih & susun sekaligus dalam satu langkah.
+// SEKARANG: dipecah jadi beberapa agent bertanggung jawab sempit (Hotel,
+// Restaurant, Activity, Budget, Itinerary Composer) yang dijalankan
+// agentOrchestratorService — lihat file itu untuk detail alurnya.
+//
+// PENTING: signature & return shape function ini SENGAJA dipertahankan
+// identik dengan versi lama (generateTripPlan({ duration, budget, interests,
+// startDate, groupType, userId }) → TripPlan JSON), supaya aiController.js
+// dan app Flutter TIDAK PERLU berubah sama sekali untuk endpoint /ai/trip-plan
+// yang sudah ada. Semua kerumitan baru ada di dalam, kontraknya tetap sama.
+async function generateTripPlan(params) {
+  return runTripPlanningAgents(params);
 }
 
 module.exports = { chatWithAssistant, smartSearch, generateDescription, generateTripPlan };
