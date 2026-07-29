@@ -3,7 +3,7 @@
 // const cors = require('cors');
 // const pool = require('./config/db');
 // const { isFirebaseReady } = require('./config/firebase');
-
+ 
 // // ─── Validasi environment variables ──────────────────────────────────────────
 // const requiredEnv = ['JWT_SECRET', 'DATABASE_URL'];
 // const missingEnv = requiredEnv.filter(k => !process.env[k]);
@@ -12,11 +12,11 @@
 //   console.error('Copy .env.example ke .env dan isi nilainya.');
 //   process.exit(1);
 // }
-
+ 
 // const OLLAMA_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 // const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:latest';
 // const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text';
-
+ 
 // async function checkPostgres() {
 //   try {
 //     const { rows } = await pool.query('SELECT NOW() as time, (SELECT extname FROM pg_extension WHERE extname = $1) as ext', ['vector']);
@@ -32,7 +32,7 @@
 //     console.error('   Cek DATABASE_URL di .env sudah benar');
 //   }
 // }
-
+ 
 // async function checkOllama() {
 //   try {
 //     const res = await fetch(OLLAMA_URL);
@@ -45,7 +45,7 @@
 //     console.warn('   Fitur AI dan RAG tidak akan berfungsi.');
 //   }
 // }
-
+ 
 // async function checkEmbeddingCount() {
 //   try {
 //     const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings');
@@ -60,7 +60,7 @@
 //     // Tabel mungkin belum ada, sudah di-warn oleh checkPostgres
 //   }
 // }
-
+ 
 // const authRoutes         = require('./routes/auth');
 // const hotelsRoutes       = require('./routes/hotels');
 // const exploreRoutes      = require('./routes/explore');
@@ -69,25 +69,25 @@
 // const aiRoutes           = require('./routes/ai');
 // const ragRoutes          = require('./routes/rag');
 // const notificationsRoutes = require('./routes/notifications');
-
+ 
 // const app = express();
 // const PORT = process.env.PORT || 3000;
-
+ 
 // app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE'], allowedHeaders: ['Content-Type','Authorization'] }));
 // app.use(express.json());
 // app.use(express.urlencoded({ extended: true }));
-
+ 
 // // Halaman statis untuk testing (mis. public/push-test.html untuk uji coba
 // // push notification secara manual tanpa perlu build app).
 // app.use(express.static(require('path').join(__dirname, '..', 'public')));
-
+ 
 // if (process.env.NODE_ENV === 'development') {
 //   app.use((req, _res, next) => {
 //     console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
 //     next();
 //   });
 // }
-
+ 
 // app.use('/api/auth',     authRoutes);
 // app.use('/api/hotels',   hotelsRoutes);
 // app.use('/api/explore',  exploreRoutes);
@@ -96,7 +96,7 @@
 // app.use('/api/ai',       aiRoutes);
 // app.use('/api/rag',      ragRoutes); // endpoint debug RAG
 // app.use('/api/notifications', notificationsRoutes);
-
+ 
 // app.get('/health', async (_req, res) => {
 //   const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings').catch(() => ({ rows: [{ count: 0 }] }));
 //   res.json({
@@ -107,7 +107,7 @@
 //     timestamp: new Date().toISOString(),
 //   });
 // });
-
+ 
 // app.get('/', (_req, res) => {
 //   res.json({
 //     message: '🌴 Sasacation API — RAG + pgvector + Ollama + Firebase',
@@ -125,38 +125,38 @@
 //     },
 //   });
 // });
-
+ 
 // app.use((req, res) => res.status(404).json({ success: false, message: `${req.method} ${req.path} tidak ditemukan` }));
-
+ 
 // app.use((err, _req, res, _next) => {
 //   console.error('Unhandled error:', err);
 //   res.status(500).json({ success: false, message: 'Server error', ...(process.env.NODE_ENV === 'development' && { error: err.message }) });
 // });
-
+ 
 // app.listen(PORT, async () => {
 //   console.log(`\n🌴 Sasacation API (RAG) → http://localhost:${PORT}`);
 //   console.log(`📌 Mode: ${process.env.NODE_ENV || 'development'}\n`);
-
+ 
 //   await checkPostgres();
 //   await checkOllama();
 //   await checkEmbeddingCount();
 //   console.log(isFirebaseReady()
 //     ? '✅ Firebase Admin siap — login Firebase & push notification aktif'
 //     : '⚠️  Firebase Admin belum dikonfigurasi — isi FIREBASE_SERVICE_ACCOUNT_PATH di .env');
-
+ 
 //   console.log(`\nAkun default:`);
 //   console.log(`  Admin → admin@sasacation.com / admin123`);
 //   console.log(`  User  → budi@example.com / admin123\n`);
 // });
-
+ 
 // module.exports = app;
-
+ 
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const pool = require('./config/db');
 const { isFirebaseReady } = require('./config/firebase');
-
+ 
 // ─── Validasi environment variables ──────────────────────────────────────────
 const requiredEnv = ['JWT_SECRET', 'DATABASE_URL'];
 const missingEnv = requiredEnv.filter(k => !process.env[k]);
@@ -165,11 +165,11 @@ if (missingEnv.length > 0) {
   console.error('Copy .env.example ke .env dan isi nilainya.');
   process.exit(1);
 }
-
+ 
 const OLLAMA_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:latest';
 const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text';
-
+ 
 async function checkPostgres() {
   try {
     const { rows } = await pool.query('SELECT NOW() as time, (SELECT extname FROM pg_extension WHERE extname = $1) as ext', ['vector']);
@@ -185,7 +185,7 @@ async function checkPostgres() {
     console.error('   Cek DATABASE_URL di .env sudah benar');
   }
 }
-
+ 
 async function checkOllama() {
   try {
     const res = await fetch(OLLAMA_URL);
@@ -198,7 +198,7 @@ async function checkOllama() {
     console.warn('   Fitur AI dan RAG tidak akan berfungsi.');
   }
 }
-
+ 
 async function checkEmbeddingCount() {
   try {
     const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings');
@@ -213,7 +213,7 @@ async function checkEmbeddingCount() {
     // Tabel mungkin belum ada, sudah di-warn oleh checkPostgres
   }
 }
-
+ 
 const authRoutes         = require('./routes/auth');
 const hotelsRoutes       = require('./routes/hotels');
 const exploreRoutes      = require('./routes/explore');
@@ -227,31 +227,56 @@ const wishlistRoutes     = require('./routes/wishlist');
 const preferencesRoutes  = require('./routes/preferences');
 const chatSessionsRoutes = require('./routes/chatSessions');
 const recommendationsRoutes = require('./routes/recommendations');
-
+const { loginLimiter, aiLimiter, generalLimiter } = require('./middleware/rateLimiter');
+ 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE'], allowedHeaders: ['Content-Type','Authorization'] }));
+ 
+// FIX audit keamanan: sebelumnya `origin: '*'` — mengizinkan domain manapun
+// memanggil API ini dari browser. Sekarang whitelist eksplisit lewat env
+// ALLOWED_ORIGINS (comma-separated, mis. "https://sasacation.com,https://www.sasacation.com").
+// Request TANPA header Origin (app mobile native, curl, Postman, server-to-
+// server) selalu diizinkan — CORS itu proteksi level BROWSER, tidak relevan
+// untuk native HTTP client, jadi tidak perlu (dan tidak bisa) diblokir di sini.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001')
+  .split(',')
+  .map(o => o.trim());
+ 
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    console.warn(`[CORS] Origin ditolak: ${origin}`);
+    callback(new Error('Not allowed by CORS'));
+  },
+  methods: ['GET','POST','PUT','PATCH','DELETE'],
+  allowedHeaders: ['Content-Type','Authorization'],
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+ 
+// FIX audit keamanan: sebelumnya TIDAK ADA rate limiting sama sekali.
+// generalLimiter berlaku untuk SEMUA endpoint (jaga-jaga dari bot/scraper),
+// loginLimiter & aiLimiter lebih ketat khusus untuk titik yang paling
+// rawan disalahgunakan (brute-force login, abuse biaya compute AI).
+app.use('/api', generalLimiter);
+ 
 // Halaman statis untuk testing (mis. public/push-test.html untuk uji coba
 // push notification secara manual tanpa perlu build app).
 app.use(express.static(require('path').join(__dirname, '..', 'public')));
-
+ 
 if (process.env.NODE_ENV === 'development') {
   app.use((req, _res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
     next();
   });
 }
-
+ 
 app.use('/api/auth',     authRoutes);
 app.use('/api/hotels',   hotelsRoutes);
 app.use('/api/explore',  exploreRoutes);
 app.use('/api/bookings', bookingsRoutes);
 app.use('/api/checkout', checkoutRoutes);
-app.use('/api/ai',       aiRoutes);
+app.use('/api/ai',       aiLimiter, aiRoutes);
 app.use('/api/rag',      ragRoutes); // endpoint debug RAG
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/partners', partnersRoutes);
@@ -259,7 +284,7 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/preferences', preferencesRoutes);
 app.use('/api/chat/sessions', chatSessionsRoutes);
 app.use('/api/recommendations', recommendationsRoutes);
-
+ 
 app.get('/health', async (_req, res) => {
   const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings').catch(() => ({ rows: [{ count: 0 }] }));
   res.json({
@@ -270,7 +295,7 @@ app.get('/health', async (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
-
+ 
 app.get('/', (_req, res) => {
   res.json({
     message: '🌴 Sasacation API — RAG + pgvector + Ollama + Firebase',
@@ -289,28 +314,29 @@ app.get('/', (_req, res) => {
     },
   });
 });
-
+ 
 app.use((req, res) => res.status(404).json({ success: false, message: `${req.method} ${req.path} tidak ditemukan` }));
-
+ 
 app.use((err, _req, res, _next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ success: false, message: 'Server error', ...(process.env.NODE_ENV === 'development' && { error: err.message }) });
 });
-
+ 
 app.listen(PORT, async () => {
   console.log(`\n🌴 Sasacation API (RAG) → http://localhost:${PORT}`);
   console.log(`📌 Mode: ${process.env.NODE_ENV || 'development'}\n`);
-
+ 
   await checkPostgres();
   await checkOllama();
   await checkEmbeddingCount();
   console.log(isFirebaseReady()
     ? '✅ Firebase Admin siap — login Firebase & push notification aktif'
     : '⚠️  Firebase Admin belum dikonfigurasi — isi FIREBASE_SERVICE_ACCOUNT_PATH di .env');
-
+ 
   console.log(`\nAkun default:`);
   console.log(`  Admin → admin@sasacation.com / admin123`);
   console.log(`  User  → budi@example.com / admin123\n`);
 });
-
+ 
 module.exports = app;
+ 

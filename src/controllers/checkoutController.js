@@ -323,8 +323,8 @@
 // };
  
 // module.exports = { getPaymentMethods, initiateCheckout, processPayment, handleMidtransWebhook, getPaymentStatus };
-
-
+ 
+ 
 const pool = require('../config/db');
 const midtransService = require('../services/midtransService');
 const { persistNotification, sendToToken } = require('../services/notificationService');
@@ -421,9 +421,40 @@ const processPayment = async (req, res) => {
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
     const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
+    // FIX audit: sebelumnya tidak ada validasi ini sama sekali — checkOut
+    // sebelum checkIn bisa menghasilkan nights negatif/nol, total harga
+    // jadi angka yang tidak masuk akal tapi tetap diproses ke Midtrans.
+    // (Belum ada transaksi DB aktif di titik ini, jadi cukup return — tidak
+    // perlu ROLLBACK.)
+    if (!nights || nights <= 0) {
+      return res.status(400).json({ success: false, message: 'Tanggal checkout harus setelah checkin' });
+    }
     const pricePerNight = Number(hotel.price);
     const subtotal = pricePerNight * nights;
     const total = subtotal + Math.round(subtotal * 0.11) + 15;
+ 
+    // FIX audit KRITIS: sebelumnya TIDAK ADA pengecekan ini sama sekali —
+    // dua user bisa membayar sukses untuk hotel & tanggal yang sama tanpa
+    // sistem tahu ada konflik (double booking). Cek dulu apakah ada booking
+    // 'confirmed' lain untuk hotel ini yang tanggalnya overlap. Sama seperti
+    // di atas, ini masih sebelum BEGIN, jadi cukup return tanpa ROLLBACK.
+    //
+    // CATATAN: ini asumsi 1 hotel = 1 unit yang bisa dibooking (exclusive
+    // per tanggal). Kalau bisnis Anda punya konsep banyak kamar per hotel
+    // (inventory count), validasi ini perlu disesuaikan jadi hitung jumlah
+    // booking overlap vs total kamar tersedia, bukan tolak di overlap pertama.
+    const overlapCheck = await client.query(
+      `SELECT id FROM bookings
+       WHERE hotel_id = $1 AND status = 'confirmed'
+         AND check_in < $3 AND check_out > $2`,
+      [hotelId, checkInDate, checkOutDate]
+    );
+    if (overlapCheck.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'Hotel ini sudah dibooking untuk tanggal yang Anda pilih. Coba tanggal lain.',
+      });
+    }
  
     const bookingCode = 'SAC-' + Math.random().toString(36).substring(2, 8).toUpperCase();
     const transactionId = 'TXN-' + Date.now();
@@ -515,6 +546,17 @@ const handleMidtransWebhook = async (req, res) => {
  
     await client.query('BEGIN');
  
+    // FIX audit: ambil status SEBELUM di-update, supaya bisa dideteksi
+    // apakah ini transisi BARU ke 'success' atau webhook retry dari event
+    // yang sudah pernah diproses sebelumnya (Midtrans bisa kirim webhook
+    // yang sama lebih dari sekali). Tanpa ini, user bisa terima notifikasi
+    // "Pembayaran Berhasil" berkali-kali untuk 1 transaksi yang sama.
+    const previousResult = await client.query(
+      `SELECT status FROM payments WHERE transaction_id = $1`,
+      [orderId]
+    );
+    const previousStatus = previousResult.rows[0]?.status;
+ 
     const paymentResult = await client.query(
       `UPDATE payments
        SET status = $1,
@@ -551,10 +593,12 @@ const handleMidtransWebhook = async (req, res) => {
     // transaksi DB — kalau gagal kirim (Firebase belum diset, token user
     // kosong/expired, dll), itu TIDAK BOLEH menggagalkan konfirmasi
     // pembayaran yang sudah tercatat sukses. Cukup di-log.
-    if (newStatus === 'success') {
+    if (newStatus === 'success' && previousStatus !== 'success') {
       notifyPaymentSuccess(payment.booking_id, payment.user_id).catch((err) =>
         console.error('[midtrans webhook] gagal kirim push notification:', err.message)
       );
+    } else if (newStatus === 'success' && previousStatus === 'success') {
+      console.log(`[midtrans webhook] order_id=${orderId} sudah success sebelumnya — skip notifikasi duplikat (kemungkinan webhook retry)`);
     }
   } catch (e) {
     await client.query('ROLLBACK');
