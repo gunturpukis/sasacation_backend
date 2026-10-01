@@ -327,7 +327,8 @@
  
 const pool = require('../config/db');
 const midtransService = require('../services/midtransService');
-const { persistNotification, sendToToken } = require('../services/notificationService');
+const { captureSavedCard } = require('../services/paymentMethodService');
+const { notifyUser, buildAction } = require('../services/notificationService');
  
 const PAYMENT_METHODS = [
   { id: 'credit_card',   label: 'Kartu Kredit / Debit', icon: 'credit_card',           available: true },
@@ -336,6 +337,10 @@ const PAYMENT_METHODS = [
   { id: 'ovo',           label: 'OVO',                   icon: 'account_balance_wallet', available: true },
   { id: 'dana',          label: 'DANA',                  icon: 'account_balance_wallet', available: true },
   { id: 'qris',          label: 'QRIS',                  icon: 'qr_code_scanner',        available: true },
+  // B4 (layar book_your_trip Figma): radio PayPal tersimpan. PayPal bukan
+  // channel native Midtrans — pemetaan dikosongkan supaya Snap menampilkan
+  // semua channel aktif (fallback aman, lihat mapToEnabledPayments).
+  { id: 'paypal',        label: 'PayPal',                icon: 'account_balance_wallet', available: true },
 ];
  
 // Midtrans (region Indonesia) hanya menerima gross_amount dalam IDR — tidak
@@ -375,9 +380,11 @@ const initiateCheckout = async (req, res) => {
     const subtotal = pricePerNight * nights;
     const taxRate = 0.11;
     const serviceFee = 15;
+    // B4 (Price Summary Figma): cleaning fee per properti (kolom hotels).
+    const cleaningFee = Number(hotel.cleaning_fee) || 0;
     const tax = Math.round(subtotal * taxRate);
-    const total = subtotal + tax + serviceFee;
- 
+    const total = subtotal + tax + serviceFee + cleaningFee;
+
     res.json({
       success: true,
       data: {
@@ -390,7 +397,7 @@ const initiateCheckout = async (req, res) => {
         nights,
         guestCount: Number(guestCount),
         notes: notes || '',
-        pricing: { pricePerNight, subtotal, tax, taxRate: taxRate * 100, serviceFee, total, currency: 'USD' },
+        pricing: { pricePerNight, subtotal, tax, taxRate: taxRate * 100, serviceFee, cleaningFee, total, currency: 'USD' },
         paymentMethods: PAYMENT_METHODS,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       },
@@ -431,7 +438,8 @@ const processPayment = async (req, res) => {
     }
     const pricePerNight = Number(hotel.price);
     const subtotal = pricePerNight * nights;
-    const total = subtotal + Math.round(subtotal * 0.11) + 15;
+    // B4: rumus HARUS identik dengan initiateCheckout di atas.
+    const total = subtotal + Math.round(subtotal * 0.11) + 15 + (Number(hotel.cleaning_fee) || 0);
  
     // FIX audit KRITIS: sebelumnya TIDAK ADA pengecekan ini sama sekali —
     // dua user bisa membayar sukses untuk hotel & tanggal yang sama tanpa
@@ -445,7 +453,7 @@ const processPayment = async (req, res) => {
     // booking overlap vs total kamar tersedia, bukan tolak di overlap pertama.
     const overlapCheck = await client.query(
       `SELECT id FROM bookings
-       WHERE hotel_id = $1 AND status = 'confirmed'
+       WHERE hotel_id = $1 AND status IN ('pending','confirmed')
          AND check_in < $3 AND check_out > $2`,
       [hotelId, checkInDate, checkOutDate]
     );
@@ -461,37 +469,47 @@ const processPayment = async (req, res) => {
  
     await client.query('BEGIN');
  
-    // 1. Buat booking (tetap 'confirmed' — kalau pembayaran gagal/expired,
-    //    webhook yang akan membatalkannya, lihat handleWebhook di bawah)
+    // 1. Buat booking 'pending' (B1) — slot tanggal di-hold; baru jadi
+    //    'confirmed' saat webhook sukses, 'cancelled' saat gagal/expired.
     const bookingResult = await client.query(`
       INSERT INTO bookings (booking_code, user_id, hotel_id, check_in, check_out, nights, guest_count, price_per_night, total_price, notes, status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'confirmed')
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
       RETURNING *
     `, [bookingCode, req.user.id, hotelId, checkInDate, checkOutDate, nights, guestCount, pricePerNight, total, notes || '']);
     const booking = bookingResult.rows[0];
- 
-    // 2. Buat payment dengan status 'pending' — BUKAN 'success' lagi
-    const paymentResult = await client.query(`
-      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status)
-      VALUES ($1,$2,$3,$4,$5,'USD','pending')
-      RETURNING *
-    `, [transactionId, booking.id, req.user.id, paymentMethod, total]);
-    const payment = paymentResult.rows[0];
- 
-    // 3. Buat transaksi Snap di Midtrans SEBELUM commit — kalau Midtrans
-    //    error (misal server key salah), seluruh insert di atas ikut rollback
-    //    supaya tidak ada booking "hantu" tanpa transaksi gateway yang valid.
+
+    // 2. Buat transaksi Snap di Midtrans SEBELUM insert payment — token &
+    //    URL Snap disimpan di baris payment supaya My Trips bisa "Complete
+    //    Booking" (resume) tanpa membuat transaksi gateway baru.
+    //    Kalau Midtrans error, insert booking di atas ikut rollback supaya
+    //    tidak ada booking "hantu" tanpa transaksi gateway yang valid.
     //    enabledPayments dipetakan dari paymentMethod yang SUDAH dipilih user
     //    di app, supaya Snap langsung ke flow metode itu — tidak nampilin
     //    daftar pilihan metode lagi (redundan sama halaman pilih di app).
+    //    P4 vault: userId SELALU dikirim supaya Midtrans pre-fill kartu
+    //    tersimpan saat returning checkout; saveCard=true (khusus kartu kredit)
+    //    menampilkan toggle "save card" di Snap — tokennya dicapture webhook.
     const snapResult = await midtransService.createTransaction({
       orderId: transactionId,
       grossAmount: total * USD_TO_IDR_RATE,
       customer: { name: req.user.name, email: req.user.email },
       itemName: `Sasacation - ${hotel.name} (${nights} malam)`,
       enabledPayments: midtransService.mapToEnabledPayments(paymentMethod),
+      userId: req.user.id,
+      ...(paymentMethod === 'credit_card' && req.body.saveCard === true
+        ? { creditCard: { secure: true, save_card: true } }
+        : {}),
     });
- 
+    const snapExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    // 3. Buat payment 'pending' + data Snap untuk resume.
+    const paymentResult = await client.query(`
+      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status, snap_token, redirect_url, snap_expires_at)
+      VALUES ($1,$2,$3,$4,$5,'USD','pending',$6,$7,$8)
+      RETURNING *
+    `, [transactionId, booking.id, req.user.id, paymentMethod, total, snapResult.token, snapResult.redirect_url, snapExpiresAt]);
+    const payment = paymentResult.rows[0];
+
     await client.query('COMMIT');
  
     res.json({
@@ -575,16 +593,29 @@ const handleMidtransWebhook = async (req, res) => {
  
     const payment = paymentResult.rows[0];
  
-    // Kalau pembayaran gagal/expired, booking terkait ikut dibatalkan
-    // otomatis — jangan biarkan booking 'confirmed' menggantung tanpa
-    // pembayaran yang valid.
-    if (newStatus === 'failed') {
+    // B1: booking 'pending' dikonfirmasi saat bayar sukses; yang gagal/
+    // expired dibatalkan (pending maupun confirmed menggantung).
+    if (newStatus === 'success') {
       await client.query(
-        `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status = 'confirmed'`,
+        `UPDATE bookings SET status = 'confirmed', updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
         [payment.booking_id]
       );
     }
- 
+    if (newStatus === 'failed') {
+      await client.query(
+        `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status IN ('pending','confirmed')`,
+        [payment.booking_id]
+      );
+    }
+
+    // P4 vault: pembayaran kartu sukses + user centang "save card" di Snap →
+    // webhook membawa saved_token_id — persist sebagai metode tersimpan.
+    // captureSavedCard tidak pernah throw (diabaikan bila gagal) supaya tidak
+    // menggagalkan konfirmasi pembayaran yang sudah valid.
+    if (newStatus === 'success') {
+      await captureSavedCard(client, payment.user_id, req.body);
+    }
+
     await client.query('COMMIT');
     console.log(`[midtrans webhook] order_id=${orderId} -> ${newStatus}`);
     res.status(200).json({ success: true });
@@ -639,22 +670,17 @@ async function notifyPaymentSuccess(bookingId, userId) {
     type: 'payment_success',
     bookingId: String(bookingId),
     bookingCode: row.booking_code,
+    // P6: action button Figma — Flutter render tombol "Lihat Booking".
+    action: buildAction('Lihat Booking', 'booking_detail', { bookingId }),
   };
- 
+
   // FIX: SEBELUM ini, kalau user belum register FCM token, function return
   // lebih awal dan notifikasi TIDAK PERNAH tersimpan sama sekali — user
   // kehilangan riwayat konfirmasi pembayarannya di Notifications screen
   // padahal pembayarannya sukses. SEKARANG: persist riwayat SELALU jalan,
   // push FCM saja yang butuh token (dan gagal-diam kalau tidak ada/invalid).
-  await persistNotification(userId, { ...notification, type: data.type, data });
- 
-  if (row.fcm_token) {
-    try {
-      await sendToToken(row.fcm_token, notification, data);
-    } catch (e) {
-      console.error('[notifyPaymentSuccess] Push gagal terkirim (diabaikan):', e.message);
-    }
-  }
+  // notifyUser juga flatten `action` ke string untuk payload FCM.
+  await notifyUser(userId, row.fcm_token || null, notification, data);
 }
  
 // GET /api/checkout/status/:transactionId
@@ -704,5 +730,46 @@ const getPaymentStatus = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error', error: e.message });
   }
 };
- 
-module.exports = { getPaymentMethods, initiateCheckout, processPayment, handleMidtransWebhook, getPaymentStatus };
+
+// GET /api/checkout/resume/:bookingId
+// B1 (layar My Trips "Complete Booking"): kembalikan URL Snap yang masih
+// aktif untuk booking 'pending' milik user — app tinggal buka redirectUrl,
+// tanpa membuat transaksi gateway baru. 404 bila tidak ada pembayaran aktif
+// (sudah sukses/gagal/expired → app arahkan ke /pay ulang).
+const resumePayment = async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.transaction_id, p.method, p.amount, p.snap_token, p.redirect_url, p.snap_expires_at,
+              b.booking_code, b.status AS booking_status
+       FROM payments p
+       JOIN bookings b ON b.id = p.booking_id
+       WHERE p.booking_id = $1 AND p.user_id = $2 AND p.status = 'pending'
+         AND p.snap_expires_at IS NOT NULL AND p.snap_expires_at > NOW()
+       ORDER BY p.created_at DESC
+       LIMIT 1`,
+      [req.params.bookingId, req.user.id]
+    );
+
+    if (rows.length === 0)
+      return res.status(404).json({ success: false, message: 'Tidak ada pembayaran aktif untuk booking ini' });
+
+    const row = rows[0];
+    res.json({
+      success: true,
+      data: {
+        transactionId: row.transaction_id,
+        bookingCode: row.booking_code,
+        bookingStatus: row.booking_status,
+        method: row.method,
+        amount: Number(row.amount),
+        snapToken: row.snap_token,
+        redirectUrl: row.redirect_url,
+        expiresAt: row.snap_expires_at,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+module.exports = { getPaymentMethods, initiateCheckout, processPayment, handleMidtransWebhook, getPaymentStatus, resumePayment };

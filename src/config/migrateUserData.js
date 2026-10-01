@@ -47,6 +47,7 @@ async function migrate() {
         min_star_rating    NUMERIC,
         interests          TEXT[]     DEFAULT '{}',   -- e.g. ['pantai','private pool']
         dislikes           TEXT[]     DEFAULT '{}',   -- e.g. ['hiking']
+        styles             TEXT[]     DEFAULT '{}',   -- P5: gaya travel e.g. ['adventure','gourmet']
         raw_signals        JSONB      DEFAULT '[]',   -- log mentah sinyal dari chat, buat audit/debug
         updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )

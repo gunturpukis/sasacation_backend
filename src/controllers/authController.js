@@ -191,4 +191,31 @@ const updateProfile = async (req, res) => {
   }
 };
 
-module.exports = { register, login, socialLogin, firebaseLogin, getMe, updateProfile, updateLocation };
+// POST /api/auth/change-password (B4: Security & Password di Settings)
+// Body: { currentPassword, newPassword }. Hanya untuk akun email/password —
+// akun Firebase tidak punya password lokal (ganti via Firebase).
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword)
+      return res.status(400).json({ success: false, message: 'currentPassword dan newPassword wajib diisi' });
+    if (String(newPassword).length < 8)
+      return res.status(400).json({ success: false, message: 'Password baru minimal 8 karakter' });
+
+    const { rows } = await pool.query('SELECT password FROM users WHERE id = $1', [req.user.id]);
+    if (rows.length === 0) return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+    if (!rows[0].password)
+      return res.status(400).json({ success: false, message: 'Akun ini login via Firebase — ganti password lewat Firebase' });
+
+    const match = await bcrypt.compare(String(currentPassword), rows[0].password);
+    if (!match) return res.status(401).json({ success: false, message: 'Password saat ini salah' });
+
+    const hashed = await bcrypt.hash(String(newPassword), 10);
+    await pool.query('UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2', [hashed, req.user.id]);
+    res.json({ success: true, message: 'Password berhasil diganti' });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+module.exports = { register, login, socialLogin, firebaseLogin, getMe, updateProfile, updateLocation, changePassword };

@@ -18,6 +18,9 @@ const hotels = [
     description: 'Qunci Villas adalah resort bintang 5 yang terletak langsung di tepi pantai Mangsit yang tenang. Dengan 56 villa pribadi yang dikelilingi taman tropis, setiap villa memiliki kolam renang pribadi dan pemandangan langsung ke Selat Lombok.',
     amenities: ['Private Pool','Beach Access','Spa','Restaurant','Bar','WiFi','Airport Transfer'],
     featured: true,
+    // P3: resort internasional — bukan usaha lokal.
+    is_local_business: false,
+    cleaning_fee: 40,
     latitude: -8.5100, longitude: 116.0500,
   },
   {
@@ -30,6 +33,9 @@ const hotels = [
     description: 'Oberoi Beach Resort Lombok merupakan salah satu resort paling mewah di Lombok. Terletak di pantai Medana yang terpencil, menawarkan pengalaman eksklusif dengan pemandangan laut yang luar biasa.',
     amenities: ['Private Beach','Infinity Pool','Spa','Dive Center','Restaurant','WiFi','Butler Service'],
     featured: true,
+    // P3: jaringan resort internasional — bukan usaha lokal.
+    is_local_business: false,
+    cleaning_fee: 60,
     latitude: -8.3600, longitude: 116.0770,
   },
   {
@@ -42,6 +48,9 @@ const hotels = [
     description: 'Katamaran Resort & Spa adalah hotel bintang 4 di kawasan Senggigi dengan pemandangan langsung ke Selat Lombok dan Gunung Agung Bali.',
     amenities: ['Pool','Spa','Restaurant','Bar','WiFi','Water Sports'],
     featured: true,
+    // P3: resort milik grup lokal Lombok.
+    is_local_business: true,
+    cleaning_fee: 30,
     latitude: -8.4870, longitude: 116.0430,
   },
   {
@@ -54,6 +63,9 @@ const hotels = [
     description: 'Puri Mas Boutique Resort adalah resort butik yang nyaman dengan nuansa Sasak yang kental, cocok untuk wisatawan yang ingin merasakan budaya lokal Lombok.',
     amenities: ['Pool','Restaurant','Cultural Activities','WiFi','Garden'],
     featured: false,
+    // P3: butik milik keluarga Sasak — usaha lokal.
+    is_local_business: true,
+    cleaning_fee: 20,
     latitude: -8.5080, longitude: 116.0510,
   },
 ];
@@ -141,6 +153,55 @@ const restaurants = [
   },
 ];
  
+// Contoh ulasan (P1 FLUTTER_P3_CONTRACTS.md) — id tetap supaya seed idempotent.
+const reviews = [
+  {
+    id: 'd0000004-0000-0000-0000-000000000001',
+    hotel_id: 'a0000001-0000-0000-0000-000000000001',
+    user_name: 'Sarah Jenkins',
+    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&q=80&fm=jpg&fit=crop',
+    rating: 5, stayed: 'Jan 2024',
+    text: 'The most incredible vacation! Private pool villa with stunning ocean views. Staff were amazing and the beach is just steps away.',
+    created_at: '2024-02-01T10:00:00Z',
+  },
+  {
+    id: 'd0000004-0000-0000-0000-000000000002',
+    hotel_id: 'a0000001-0000-0000-0000-000000000001',
+    user_name: 'Andi Pratama',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&q=80&fm=jpg&fit=crop',
+    rating: 4.5, stayed: 'Dec 2023',
+    text: 'Villa sangat private dan tenang, cocok untuk honeymoon. Makanan di restorannya enak, hanya saja WiFi di kamar agak lambat.',
+    created_at: '2024-01-05T10:00:00Z',
+  },
+  {
+    id: 'd0000004-0000-0000-0000-000000000003',
+    hotel_id: 'a0000001-0000-0000-0000-000000000002',
+    user_name: 'Maria Gonzalez',
+    avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&q=80&fm=jpg&fit=crop',
+    rating: 5, stayed: 'Feb 2024',
+    text: 'Absolute luxury! The butler service was impeccable and the private beach is pristine. Best resort in Lombok, hands down.',
+    created_at: '2024-03-10T10:00:00Z',
+  },
+  {
+    id: 'd0000004-0000-0000-0000-000000000004',
+    hotel_id: 'a0000001-0000-0000-0000-000000000003',
+    user_name: 'Budi Santoso',
+    avatar: null,
+    rating: 4, stayed: 'Nov 2023',
+    text: 'Lokasi strategis di Senggigi, pemandangan sunset luar biasa. Kolam renang bersih, sarapan variatif. Recommended untuk keluarga.',
+    created_at: '2023-12-15T10:00:00Z',
+  },
+  {
+    id: 'd0000004-0000-0000-0000-000000000005',
+    hotel_id: 'a0000001-0000-0000-0000-000000000004',
+    user_name: 'Lina Chen',
+    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&q=80&fm=jpg&fit=crop',
+    rating: 4.5, stayed: 'Jan 2024',
+    text: 'Boutique resort dengan nuansa Sasak yang kental. Taman tropisnya cantik dan staf sangat ramah. Pengalaman budaya yang autentik.',
+    created_at: '2024-01-20T10:00:00Z',
+  },
+];
+
 async function seed() {
   const client = await pool.connect();
   try {
@@ -158,12 +219,15 @@ async function seed() {
     console.log('✅ Users seeded');
  
     // Hotels
+    // Pastikan kolom P3 ada (aman bila migrasi belum dijalankan manual).
+    await client.query(`ALTER TABLE hotels ADD COLUMN IF NOT EXISTS is_local_business BOOLEAN NOT NULL DEFAULT false`);
+    await client.query(`ALTER TABLE hotels ADD COLUMN IF NOT EXISTS cleaning_fee NUMERIC NOT NULL DEFAULT 0`);
     for (const h of hotels) {
       await client.query(`
-        INSERT INTO hotels (id, name, location, address, price, rating, review_count, image, images, description, amenities, featured, latitude, longitude)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-        ON CONFLICT (id) DO UPDATE SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude
-      `, [h.id, h.name, h.location, h.address, h.price, h.rating, h.review_count, h.image, h.images, h.description, h.amenities, h.featured, h.latitude, h.longitude]);
+        INSERT INTO hotels (id, name, location, address, price, rating, review_count, image, images, description, amenities, featured, is_local_business, cleaning_fee, latitude, longitude)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        ON CONFLICT (id) DO UPDATE SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, is_local_business = EXCLUDED.is_local_business, cleaning_fee = EXCLUDED.cleaning_fee
+      `, [h.id, h.name, h.location, h.address, h.price, h.rating, h.review_count, h.image, h.images, h.description, h.amenities, h.featured, h.is_local_business, h.cleaning_fee, h.latitude, h.longitude]);
     }
     console.log(`✅ Hotels seeded (${hotels.length})`);
  
@@ -186,7 +250,34 @@ async function seed() {
       `, [r.id, r.name, r.location, r.address, r.price, r.rating, r.review_count, r.image, r.images, r.description, r.cuisine, r.open_hours, r.latitude, r.longitude]);
     }
     console.log(`✅ Restaurants seeded (${restaurants.length})`);
- 
+
+    // Reviews (P1) — pastikan tabel ada (aman bila migrasi belum dijalankan
+    // manual, karena CREATE TABLE IF NOT EXISTS), lalu upsert contoh ulasan.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS reviews (
+        id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        hotel_id   UUID        NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+        user_id    UUID        REFERENCES users(id) ON DELETE SET NULL,
+        user_name  TEXT        NOT NULL,
+        avatar     TEXT,
+        rating     NUMERIC(2,1) NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        stayed     TEXT,
+        text       TEXT        NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    for (const rev of reviews) {
+      await client.query(`
+        INSERT INTO reviews (id, hotel_id, user_name, avatar, rating, stayed, text, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ON CONFLICT (id) DO UPDATE SET
+          user_name = EXCLUDED.user_name, avatar = EXCLUDED.avatar,
+          rating = EXCLUDED.rating, stayed = EXCLUDED.stayed,
+          text = EXCLUDED.text, created_at = EXCLUDED.created_at
+      `, [rev.id, rev.hotel_id, rev.user_name, rev.avatar, rev.rating, rev.stayed, rev.text, rev.created_at]);
+    }
+    console.log(`✅ Reviews seeded (${reviews.length})`);
+
     await client.query('COMMIT');
     console.log('\n🎉 Seed selesai! Jalankan: npm run rag:index');
   } catch (err) {

@@ -12,6 +12,18 @@
     "db:migrate:firebase-geo": "node src/config/migrateFirebaseGeo.js",
     "db:migrate:payment-gateway": "node src/config/migratePaymentGateway.js",
     "db:migrate:partners": "node src/config/migratePartners.js",
+    "db:migrate:reviews": "node src/config/migrateReviews.js",
+    "db:migrate:wallet": "node src/config/migrateWallet.js",
+    "db:migrate:impact": "node src/config/migrateImpact.js",
+    "db:migrate:payment-methods": "node src/config/migratePaymentMethods.js",
+    "db:migrate:preference-styles": "node src/config/migratePreferenceStyles.js",
+    "db:migrate:booking-pending": "node src/config/migrateBookingPending.js",
+    "db:migrate:b4": "node src/config/migrateB4.js",
+    "db:migrate:itineraries": "node src/config/migrateItineraries.js",
+    "db:migrate:polls": "node src/config/migratePolls.js",
+    "db:migrate:groups": "node src/config/migrateGroups.js",
+    "db:migrate:a6": "node src/config/migrateA6.js",
+    "db:migrate:tasks": "node src/config/migrateTasks.js",
     "push:test": "node src/scripts/sendTestPush.js"
   },
   "dependencies": {
@@ -24,7 +36,7 @@
     "jsonwebtoken": "^9.0.2",
     "midtrans-client": "^1.3.1",
     "pg": "^8.12.0",
-    "uuid": "^9.0.0"
+    "uuid": "^14.0.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

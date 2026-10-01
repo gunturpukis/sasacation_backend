@@ -227,6 +227,15 @@ const wishlistRoutes     = require('./routes/wishlist');
 const preferencesRoutes  = require('./routes/preferences');
 const chatSessionsRoutes = require('./routes/chatSessions');
 const recommendationsRoutes = require('./routes/recommendations');
+const walletRoutes     = require('./routes/wallet');
+const impactRoutes     = require('./routes/impact');
+const paymentMethodsRoutes = require('./routes/paymentMethods');
+const settingsRoutes   = require('./routes/settings');
+const itinerariesRoutes = require('./routes/itineraries');
+const pollsRoutes     = require('./routes/polls');
+const groupsRoutes    = require('./routes/groups');
+const loyaltyRoutes   = require('./routes/loyalty');
+const tasksRoutes     = require('./routes/tasks');
 const { loginLimiter, aiLimiter, generalLimiter } = require('./middleware/rateLimiter');
  
 const app = express();
@@ -284,6 +293,15 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/preferences', preferencesRoutes);
 app.use('/api/chat/sessions', chatSessionsRoutes);
 app.use('/api/recommendations', recommendationsRoutes);
+app.use('/api/wallet', walletRoutes);
+app.use('/api/impact', impactRoutes);
+app.use('/api/payment-methods', paymentMethodsRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/itineraries', itinerariesRoutes);
+app.use('/api/polls', pollsRoutes);
+app.use('/api/groups', groupsRoutes);
+app.use('/api/loyalty', loyaltyRoutes);
+app.use('/api/tasks', tasksRoutes);
  
 app.get('/health', async (_req, res) => {
   const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings').catch(() => ({ rows: [{ count: 0 }] }));
@@ -311,6 +329,15 @@ app.get('/', (_req, res) => {
       rag:           'GET /api/rag/search?q=... (debug endpoint, murni similarity search)',
       notifications: 'POST /api/notifications/register-token | /test | DELETE /api/notifications/token',
       partners:      'POST /api/partners/apply | GET/PUT /api/partners/me | GET /api/partners/admin/all | PATCH /api/partners/admin/:id/approve|reject (admin only)',
+      wallet:        'GET /api/wallet | GET /api/wallet/transactions | POST /api/wallet/topup | POST /api/wallet/spend | POST /api/wallet/webhook/midtrans (internal)',
+      impact:        'GET /api/impact/summary | GET /api/impact/discovery (auth optional)',
+      paymentMethods: 'GET /api/payment-methods | PATCH /api/payment-methods/:id/primary | PATCH /api/payment-methods/:id (label) | DELETE /api/payment-methods/:id',
+      settings:       'GET /api/settings | PUT /api/settings',
+      itineraries:    'POST /api/itineraries | GET /api/itineraries/my | GET/PUT/DELETE /api/itineraries/:id | POST /api/itineraries/:id/items | PATCH/DELETE /api/itineraries/items/:itemId',
+      polls:          'POST /api/polls | GET /api/polls/open | GET /api/polls/my | GET /api/polls/:id | POST /api/polls/:id/vote | PATCH /api/polls/:id/close | DELETE /api/polls/:id',
+      groups:         'POST /api/groups | GET /api/groups/my | GET/DELETE /api/groups/:id | POST /api/groups/:id/members | DELETE /api/groups/:id/members/:userId | POST /api/groups/:id/expenses | DELETE /api/groups/:id/expenses/:expenseId',
+      loyalty:        'GET /api/loyalty (tier + travel pass)',
+      tasks:          'POST /api/tasks | GET /api/tasks/my | PUT /api/tasks/:id | PATCH /api/tasks/:id/done | DELETE /api/tasks/:id',
     },
   });
 });

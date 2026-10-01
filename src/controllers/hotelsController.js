@@ -2,7 +2,8 @@ const pool = require('../config/db');
 
 const getHotels = async (req, res) => {
   try {
-    const { featured, search, minPrice, maxPrice, page = 1, limit = 10 } = req.query;
+    // B3 (layar Search Figma): + `amenities` (koma, cocok SEMUA) + `sort`.
+    const { featured, search, minPrice, maxPrice, amenities, sort, page = 1, limit = 10 } = req.query;
     const conditions = ['available = true'];
     const params = [];
 
@@ -13,6 +14,25 @@ const getHotels = async (req, res) => {
     }
     if (minPrice) { params.push(Number(minPrice)); conditions.push(`price >= $${params.length}`); }
     if (maxPrice) { params.push(Number(maxPrice)); conditions.push(`price <= $${params.length}`); }
+    if (amenities) {
+      const list = String(amenities).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
+      if (list.length > 0) {
+        params.push(list);
+        conditions.push(`amenities @> $${params.length}::text[]`);
+      }
+    }
+
+    // Sort allowlist (default = perilaku lama). Nilai lain → 400 agar typo
+    // ketahuan saat develop, bukan hasil acak.
+    const SORTS = {
+      rating: 'featured DESC, rating DESC NULLS LAST',
+      price_asc: 'price ASC',
+      price_desc: 'price DESC',
+      newest: 'created_at DESC',
+    };
+    const orderBy = SORTS[sort] || SORTS.rating;
+    if (sort && !SORTS[sort])
+      return res.status(400).json({ success: false, message: `sort tidak dikenal. Pilih dari: ${Object.keys(SORTS).join(', ')}` });
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const countResult = await pool.query(`SELECT COUNT(*) FROM hotels ${where}`, params);
@@ -20,7 +40,7 @@ const getHotels = async (req, res) => {
 
     params.push(Number(limit), (Number(page) - 1) * Number(limit));
     const { rows } = await pool.query(
-      `SELECT * FROM hotels ${where} ORDER BY featured DESC, rating DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      `SELECT * FROM hotels ${where} ORDER BY ${orderBy} LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
 
@@ -34,7 +54,38 @@ const getHotelById = async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM hotels WHERE id = $1', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
-    res.json({ success: true, data: rows[0] });
+    const hotel = rows[0];
+
+    // P1 (FLUTTER_P3_CONTRACTS.md): Guest Reviews. Flutter render section
+    // + bottom sheet "See all" bila ada array `reviews`. Key mengikuti
+    // kontrak: id, user_name, avatar, rating (angka), stayed, date, text.
+    // Item tanpa teks di-skip (filter di SQL). Kalau tabel reviews belum
+    // ada (DB lama sebelum migrasi), fallback ke [] agar tidak 500.
+    let reviews = [];
+    try {
+      const { rows: reviewRows } = await pool.query(
+        `SELECT id, user_name, avatar, rating, stayed, text, created_at
+         FROM reviews
+         WHERE hotel_id = $1 AND text IS NOT NULL AND text <> ''
+         ORDER BY created_at DESC
+         LIMIT 50`,
+        [req.params.id]
+      );
+      reviews = reviewRows.map((r) => ({
+        id: r.id,
+        user_name: r.user_name,
+        avatar: r.avatar || null,
+        rating: r.rating === null ? null : Number(r.rating),
+        stayed: r.stayed || null,
+        date: r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : null,
+        text: r.text,
+      }));
+    } catch (e) {
+      // 42P01 = undefined_table → DB belum dimigrasi, biarkan reviews = []
+      if (e.code !== '42P01') throw e;
+    }
+
+    res.json({ success: true, data: { ...hotel, reviews } });
   } catch (e) {
     res.status(500).json({ success: false, message: 'Server error', error: e.message });
   }

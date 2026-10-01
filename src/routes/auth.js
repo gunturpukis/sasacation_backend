@@ -15,7 +15,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { register, login, firebaseLogin, getMe, updateProfile, updateLocation } = require('../controllers/authController');
+const { register, login, firebaseLogin, getMe, updateProfile, updateLocation, changePassword } = require('../controllers/authController');
 const { authMiddleware } = require('../middleware/auth');
 const { loginLimiter } = require('../middleware/rateLimiter');
  
@@ -40,6 +40,8 @@ router.post('/firebase', firebaseLogin); // rekomendasi: login via Firebase Auth
 router.get('/me', authMiddleware, getMe);
 router.put('/profile', authMiddleware, updateProfile);
 router.patch('/location', authMiddleware, updateLocation);
+// B4: ganti password — rate limit login dipakai ulang (sensitif brute-force).
+router.post('/change-password', authMiddleware, loginLimiter, changePassword);
  
 module.exports = router;
  

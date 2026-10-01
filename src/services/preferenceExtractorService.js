@@ -25,6 +25,8 @@ ATURAN KETAT:
 - HANYA ambil apa yang benar-benar disebutkan/tersirat kuat dari user. JANGAN mengarang atau menebak berlebihan.
 - Kalau tidak ada sinyal baru sama sekali di percakapan ini, kembalikan semua array kosong dan budget null.
 - interests/dislikes: kata benda singkat (2-3 kata), bukan kalimat. Contoh benar: "private pool", "hiking". Contoh salah: "suka berenang di pantai yang sepi".
+- newStyles: HANYA dari daftar ini: ["relaxation", "adventure", "budget", "gourmet", "culture", "nature", "luxury"]. Isi bila user menyebut gaya liburan yang cocok (mis. "suka hiking dan snorkeling" → ["adventure"], "mau kulineran" → ["gourmet"]).
+- Kata gaya liburan WAJIB masuk newStyles, JANGAN diduplikat ke newInterests (mis. "santai" → newStyles ["relaxation"], bukan newInterests ["relaxation"]). newInterests hanya untuk hal spesifik (fasilitas, aktivitas, tempat).
 - Balas HANYA objek JSON dengan skema persis ini, tanpa teks tambahan:
 {
   "budgetMin": number | null,
@@ -32,7 +34,8 @@ ATURAN KETAT:
   "preferredGroupType": "solo" | "couple" | "family" | "friends" | null,
   "minStarRating": number | null,
   "newInterests": string[],
-  "newDislikes": string[]
+  "newDislikes": string[],
+  "newStyles": string[]
 }`;
 
 async function extractSignals(recentMessages) {
@@ -62,13 +65,26 @@ async function extractSignals(recentMessages) {
 }
 
 async function mergeIntoPreferences(userId, signals) {
-  const { budgetMin, budgetMax, preferredGroupType, minStarRating, newInterests = [], newDislikes = [] } = signals;
+  const { budgetMin, budgetMax, preferredGroupType, minStarRating, newInterests = [], newDislikes = [], newStyles = [] } = signals;
+
+  // Styles dinormalisasi ke kosakata P5 (kontrak Flutter) — nilai liar dari
+  // LLM dibuang supaya kartu Settings selalu bisa dipetakan ke ikon.
+  // Jaring pengaman: LLM kadang menaruh kata gaya ("gourmet") di newInterests
+  // meski prompt melarang — kata yang persis cocok kosakata dipromosikan ke
+  // styles secara deterministik supaya tidak bocor ke interests.
+  const { ALLOWED_STYLES } = require('../controllers/preferencesController');
+  const norm = (s) => s.trim().toLowerCase();
+  const llmStyles = newStyles.filter(s => typeof s === 'string').map(norm);
+  const promoted = newInterests.filter(s => typeof s === 'string').map(norm)
+    .filter(s => ALLOWED_STYLES.includes(s));
+  const cleanInterests = newInterests.filter(s => typeof s === 'string' && !ALLOWED_STYLES.includes(norm(s)));
+  const cleanStyles = [...new Set([...llmStyles, ...promoted])].filter(s => ALLOWED_STYLES.includes(s));
 
   // Union array supaya tidak menghapus interest lama yang tidak disebut lagi
   // di percakapan ini — preferensi bersifat akumulatif, bukan snapshot per-chat.
   await pool.query(
-    `INSERT INTO user_preferences (user_id, budget_min, budget_max, preferred_group_type, min_star_rating, interests, dislikes, raw_signals, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+    `INSERT INTO user_preferences (user_id, budget_min, budget_max, preferred_group_type, min_star_rating, interests, dislikes, styles, raw_signals, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
      ON CONFLICT (user_id) DO UPDATE SET
        budget_min = COALESCE(EXCLUDED.budget_min, user_preferences.budget_min),
        budget_max = COALESCE(EXCLUDED.budget_max, user_preferences.budget_max),
@@ -76,11 +92,12 @@ async function mergeIntoPreferences(userId, signals) {
        min_star_rating = COALESCE(EXCLUDED.min_star_rating, user_preferences.min_star_rating),
        interests = (SELECT ARRAY(SELECT DISTINCT unnest(user_preferences.interests || EXCLUDED.interests))),
        dislikes = (SELECT ARRAY(SELECT DISTINCT unnest(user_preferences.dislikes || EXCLUDED.dislikes))),
+       styles = (SELECT ARRAY(SELECT DISTINCT unnest(user_preferences.styles || EXCLUDED.styles))),
        raw_signals = user_preferences.raw_signals || EXCLUDED.raw_signals,
        updated_at = NOW()`,
     [
       userId, budgetMin, budgetMax, preferredGroupType, minStarRating,
-      newInterests, newDislikes,
+      cleanInterests, newDislikes, cleanStyles,
       JSON.stringify([{ at: new Date().toISOString(), signals }]),
     ]
   );
@@ -93,7 +110,8 @@ async function extractAndMergePreferences(userId, recentMessages) {
     const signals = await extractSignals(recentMessages);
     const hasSignal =
       signals.budgetMin || signals.budgetMax || signals.preferredGroupType ||
-      signals.minStarRating || signals.newInterests?.length || signals.newDislikes?.length;
+      signals.minStarRating || signals.newInterests?.length || signals.newDislikes?.length ||
+      signals.newStyles?.length;
 
     if (!hasSignal) return; // tidak ada yang baru, tidak perlu tulis apa-apa
 

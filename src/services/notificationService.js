@@ -156,6 +156,67 @@ async function persistNotification(userId, { title, body, type = 'general', data
     [userId, title, body, type, JSON.stringify(data)]
   );
 }
+
+// ─── P6 (FLUTTER_P3_CONTRACTS.md): Action button Figma ──────────────────────
+// Kontrak `data.action` yang disepakati dengan Flutter:
+//   action: { label: "Lihat Booking", route: "booking_detail", params: { bookingId: "..." } }
+// Flutter render tombol bila `action` ada; tap → navigasi internal sesuai
+// `route` + `params`. Daftar route yang BOLEH dipakai backend (allowlist) —
+// Flutter wajib implementasikan mapping untuk SEMUA key ini:
+//   - booking_detail  { bookingId }   → detail booking
+//   - hotel_detail    { hotelId }     → detail hotel
+//   - wallet          {}              → Travel Wallet
+//   - payment_methods {}              → metode tersimpan
+//   - impact_summary  {}              → skor Local Impact
+const NOTIFICATION_ROUTES = {
+  booking_detail: ['bookingId'],
+  hotel_detail: ['hotelId'],
+  wallet: [],
+  payment_methods: [],
+  impact_summary: [],
+  // A5: tombol "View Itinerary".
+  itinerary_detail: ['itineraryId'],
+  // A1: tombol "Vote now".
+  poll_detail: ['pollId'],
+  // A2: tombol "View Suggestions" kartu budget.
+  group_detail: ['groupId'],
+  // A3: tombol aksi kartu travel task.
+  task_detail: ['taskId'],
+};
+
+/**
+ * Bangun action notifikasi yang valid. Throw untuk route/param tak dikenal
+ * (programmer error — harus ketahuan saat develop, bukan saat user tap).
+ */
+function buildAction(label, route, params = {}) {
+  if (typeof label !== 'string' || !label.trim()) {
+    throw new Error('action label wajib string tidak kosong');
+  }
+  const required = NOTIFICATION_ROUTES[route];
+  if (!required) {
+    throw new Error(`action route tak dikenal: ${route}. Pilih dari: ${Object.keys(NOTIFICATION_ROUTES).join(', ')}`);
+  }
+  const missing = required.filter(k => params[k] === undefined || params[k] === null || params[k] === '');
+  if (missing.length > 0) {
+    throw new Error(`action route ${route} butuh params: ${missing.join(', ')}`);
+  }
+  const safeParams = {};
+  for (const [k, v] of Object.entries(params)) safeParams[k] = String(v);
+  return { label: label.trim(), route, params: safeParams };
+}
+
+/**
+ * FCM hanya menerima string di payload `data` — objek (mis. action) harus
+ * di-JSON-kan dulu. Riwayat DB tetap menyimpan objek aslinya (lihat
+ * persistNotification), flatten ini HANYA untuk push.
+ */
+function flattenDataForFcm(data = {}) {
+  const out = {};
+  for (const [k, v] of Object.entries(data)) {
+    out[k] = typeof v === 'string' ? v : JSON.stringify(v);
+  }
+  return out;
+}
  
 /**
  * Helper gabungan: persist ke riwayat DULU (supaya tetap ada walau push
@@ -167,7 +228,7 @@ async function notifyUser(userId, token, notification, data = {}) {
   await persistNotification(userId, { ...notification, type: data.type || 'general', data });
   if (token) {
     try {
-      await sendToToken(token, notification, data);
+      await sendToToken(token, notification, flattenDataForFcm(data));
     } catch (e) {
       // Push gagal (token invalid/expired dll) tidak boleh menggagalkan alur
       // utama (mis. konfirmasi pembayaran) — riwayat in-app sudah tersimpan,
@@ -176,5 +237,5 @@ async function notifyUser(userId, token, notification, data = {}) {
     }
   }
 }
- 
-module.exports = { sendToToken, sendToTokens, sendToTopic, persistNotification, notifyUser };
+
+module.exports = { sendToToken, sendToTokens, sendToTopic, persistNotification, notifyUser, buildAction, flattenDataForFcm, NOTIFICATION_ROUTES };

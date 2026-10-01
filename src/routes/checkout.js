@@ -12,7 +12,7 @@
 // module.exports = router;
 const express = require('express');
 const router = express.Router();
-const { getPaymentMethods, initiateCheckout, processPayment, handleMidtransWebhook, getPaymentStatus } = require('../controllers/checkoutController');
+const { getPaymentMethods, initiateCheckout, processPayment, handleMidtransWebhook, getPaymentStatus, resumePayment } = require('../controllers/checkoutController');
 const { authMiddleware } = require('../middleware/auth');
 
 // PENTING: webhook Midtrans dipanggil server-ke-server, TIDAK membawa token
@@ -27,5 +27,6 @@ router.get('/methods', getPaymentMethods);
 router.post('/initiate', initiateCheckout);
 router.post('/pay', processPayment);
 router.get('/status/:transactionId', getPaymentStatus);
+router.get('/resume/:bookingId', resumePayment); // B1: lanjutkan bayar booking pending
 
 module.exports = router;

@@ -22,9 +22,15 @@ const snap = new midtransClient.Snap({
  * @param {string[]} [params.enabledPayments] - kalau diisi 1 item, Snap skip
  *   halaman pilih metode dan langsung ke flow metode itu. Kalau tidak diisi,
  *   Snap tampilkan semua metode yang aktif di akun Midtrans (perilaku lama).
+ * @param {string} [params.userId] - id user internal (P4 vault). Dikirim sebagai
+ *   `user_id` Snap supaya Midtrans pre-fill kartu tersimpan saat returning
+ *   checkout. Server-to-server only, tidak diekspos ke client.
+ * @param {object} [params.creditCard] - opsi blok `credit_card` Snap, mis.
+ *   `{ secure: true, save_card: true }` untuk menampilkan toggle "save card"
+ *   (P4). Hanya dikirim kalau disediakan.
  * @returns {Promise<{token:string, redirect_url:string}>}
  */
-async function createTransaction({ orderId, grossAmount, customer, itemName, enabledPayments }) {
+async function createTransaction({ orderId, grossAmount, customer, itemName, enabledPayments, userId, creditCard }) {
   const parameter = {
     transaction_details: {
       order_id: orderId,
@@ -46,8 +52,11 @@ async function createTransaction({ orderId, grossAmount, customer, itemName, ena
     // ada di initiateCheckout (15 menit)
     expiry: { unit: 'minutes', duration: 15 },
     ...(enabledPayments?.length && { enabled_payments: enabledPayments }),
+    // P4 vault: user_id mengaktifkan token storage (save toggle + prefill).
+    ...(userId && { user_id: String(userId) }),
+    ...(creditCard && { credit_card: creditCard }),
   };
- 
+
   return snap.createTransaction(parameter);
 }
  
