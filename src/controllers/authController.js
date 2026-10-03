@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
-const { admin, requireFirebase } = require('../config/firebase');
+const { auth, requireFirebase } = require('../config/firebase');
 
 function makeToken(user) {
   return jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
@@ -107,7 +107,7 @@ const firebaseLogin = async (req, res) => {
 
     let decoded;
     try {
-      decoded = await admin.auth().verifyIdToken(idToken);
+      decoded = await auth().verifyIdToken(idToken);
     } catch (err) {
       return res.status(401).json({ success: false, message: 'idToken tidak valid atau kadaluarsa' });
     }

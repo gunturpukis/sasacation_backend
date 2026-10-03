@@ -76,8 +76,8 @@
 // Wrapper tipis di atas Firebase Admin Messaging untuk mengirim push
 // notification. Dipakai oleh notificationsController (endpoint test/broadcast)
 // dan bisa dipanggil dari controller lain nanti (mis. saat booking dikonfirmasi).
- 
-const { admin, requireFirebase } = require('../config/firebase');
+
+const { messaging, requireFirebase } = require('../config/firebase');
 const pool = require('../config/db');
  
 /**
@@ -102,8 +102,8 @@ async function sendToToken(token, notification, data = {}) {
       payload: { aps: { sound: 'default', 'content-available': 1 } },
     },
   };
- 
-  return admin.messaging().send(message);
+
+  return messaging().send(message);
 }
  
 /**
@@ -123,8 +123,8 @@ async function sendToTokens(tokens, notification, data = {}) {
     android: { priority: 'high', notification: { channelId: 'sasacation_default', sound: 'default' } },
     apns: { payload: { aps: { sound: 'default', 'content-available': 1 } } },
   };
- 
-  const response = await admin.messaging().sendEachForMulticast(message);
+
+  const response = await messaging().sendEachForMulticast(message);
   const invalidTokens = [];
   response.responses.forEach((r, i) => {
     if (!r.success) {
@@ -141,7 +141,7 @@ async function sendToTokens(tokens, notification, data = {}) {
 /** Kirim notifikasi ke topic (mis. 'promo', 'all-users'). */
 async function sendToTopic(topic, notification, data = {}) {
   requireFirebase();
-  return admin.messaging().send({ topic, notification, data });
+  return messaging().send({ topic, notification, data });
 }
  
 /**

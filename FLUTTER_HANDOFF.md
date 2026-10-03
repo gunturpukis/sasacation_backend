@@ -111,16 +111,13 @@
   (pending → 422, asing/tak ada → 404). Bahasa ikut `user_settings.language`.
 - Kriteria: tombol "Unduh Invoice" di tiap baris sukses Payment History.
 
-### F13 — Cuaca destinasi [siap, menunggu aktivasi key]
+### F13 — Cuaca destinasi [siap — key aktif, terverifikasi live]
 - `GET /api/weather?lat=&lng=` (publik) → `{ current: { temp_c, feels_like_c,
   humidity, condition, description, icon, wind_ms, location, observed_at },
   alert: { severity: high|medium, kind: thunderstorm|heavy_rain, title, window } | null,
   cached }`. Cache 10 menit.
 - `alert != null` → tampilkan kartu "Destination Alert" + tombol Reschedule
   (`PATCH /api/bookings/:id/reschedule`). `alert == null` → sembunyikan kartu.
-- Status: kode live; key OpenWeather di server saat ini DITOLAK upstream (401).
-  Key baru biasanya butuh aktivasi beberapa jam — coba lagi nanti; tanpa key
-  endpoint balas 503 (bukan crash).
 
 ### F14 — Kontrak currency + rate (prasyarat S1.1) [siap]
 - `GET /api/settings` → `currency: "USD"`, `usd_to_idr_rate: 16000` (global,
@@ -158,4 +155,6 @@
 1. Backend dev jalan (`npm run dev`, port 5001). Login → JWT:
    `curl -X POST localhost:5001/api/auth/login -d '{"email":"budi@example.com","password":"admin123"}'`.
 2. Panggil endpoint item, cocokkan JSON dengan kontrak di atas.
-3. UI langsung bisa render — tidak perlu perubahan backend lagi untuk F1–F11.
+3. UI langsung bisa render — tidak perlu perubahan backend lagi untuk F1–F16.
+4. Alur uang terproteksi `npm test` (12 integration test hijau:
+   checkout, webhook, wallet, transfer, refund guards, invoice).

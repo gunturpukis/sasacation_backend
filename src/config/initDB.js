@@ -24,7 +24,7 @@ async function initDB() {
         name        TEXT        NOT NULL,
         email       TEXT        UNIQUE NOT NULL,
         password    TEXT,
-        role        TEXT        NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+        role        TEXT        NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'partner')),
         avatar      TEXT,
         provider    TEXT        NOT NULL DEFAULT 'email',
         provider_id TEXT,
@@ -38,6 +38,27 @@ async function initDB() {
       )
     `);
     console.log('✅ Tabel users');
+
+    // ── Properties (B2B — mitra; lihat migrateLegacy.js untuk DB lama) ───────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS properties (
+        id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        owner_id      UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        business_name TEXT        NOT NULL,
+        description   TEXT,
+        phone         TEXT,
+        address       TEXT,
+        status        TEXT        NOT NULL DEFAULT 'pending'
+                                   CHECK (status IN ('pending','verified','rejected','suspended')),
+        rejection_reason TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log('✅ Tabel properties');
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_properties_owner ON properties(owner_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_properties_status ON properties(status)`);
 
     // ── Hotels ───────────────────────────────────────────────────────────────
     await client.query(`
@@ -55,11 +76,9 @@ async function initDB() {
         amenities    TEXT[]      DEFAULT '{}',
         featured     BOOLEAN     DEFAULT false,
         available    BOOLEAN     DEFAULT true,
-        // P3 (FLUTTER_P3_CONTRACTS.md): flag usaha lokal untuk Impact Score.
-        // Lihat src/config/migrateImpact.js untuk DB yang sudah ada.
-        is_local_business BOOLEAN NOT NULL DEFAULT false,
-        // B4 (audit Figma): rincian "Cleaning fee" di Price Summary.
-        cleaning_fee NUMERIC NOT NULL DEFAULT 0,
+        is_local_business BOOLEAN NOT NULL DEFAULT false, -- P3: flag usaha lokal (Impact Score)
+        cleaning_fee NUMERIC NOT NULL DEFAULT 0, -- B4: rincian Cleaning fee
+        property_id  UUID REFERENCES properties(id) ON DELETE SET NULL, -- B2B: NULL = milik platform
         latitude     NUMERIC,
         longitude    NUMERIC,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -67,6 +86,8 @@ async function initDB() {
       )
     `);
     console.log('✅ Tabel hotels');
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_hotels_property ON hotels(property_id)`);
 
     // ── Destinations ─────────────────────────────────────────────────────────
     await client.query(`
@@ -147,19 +168,93 @@ async function initDB() {
         currency       TEXT        DEFAULT 'USD',
         status         TEXT        NOT NULL DEFAULT 'success'
                         CHECK (status IN ('pending','success','failed','refunded')),
-        paid_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        paid_at        TIMESTAMPTZ, -- NULL = belum dibayar (pending)
         created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        // B1: data Snap untuk resume pembayaran pending dari My Trips.
-        snap_token     TEXT,
+        gateway_response JSONB, -- payload mentah webhook Midtrans (audit)
+        snap_token     TEXT, -- B1: resume pembayaran pending dari My Trips
         redirect_url   TEXT,
         snap_expires_at TIMESTAMPTZ,
-        // Invoice PDF: snapshot komponen harga saat ditagih (anti-drift tarif).
-        tax_amount     NUMERIC,
+        tax_amount     NUMERIC, -- snapshot invoice: anti-drift tarif
         service_fee    NUMERIC,
         cleaning_fee   NUMERIC
       )
     `);
     console.log('✅ Tabel payments');
+
+    // ── Personalisasi & riwayat (lihat migrateLegacy.js untuk DB lama) ───────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS wishlist (
+        id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        hotel_id   UUID        NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, hotel_id)
+      )
+    `);
+    console.log('✅ Tabel wishlist');
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_wishlist_user ON wishlist(user_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_preferences (
+        user_id           UUID        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        budget_min         NUMERIC,
+        budget_max         NUMERIC,
+        preferred_group_type TEXT     CHECK (preferred_group_type IN ('solo','couple','family','friends')),
+        min_star_rating    NUMERIC,
+        interests          TEXT[]     DEFAULT '{}',
+        dislikes           TEXT[]     DEFAULT '{}',
+        styles             TEXT[]     DEFAULT '{}',
+        raw_signals        JSONB      DEFAULT '[]',
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log('✅ Tabel user_preferences');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title      TEXT        NOT NULL,
+        body       TEXT        NOT NULL,
+        type       TEXT        NOT NULL DEFAULT 'general',
+        data       JSONB       DEFAULT '{}',
+        read_at    TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log('✅ Tabel notifications');
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+        ON notifications(user_id, created_at DESC)
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title      TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID        NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        role       TEXT        NOT NULL CHECK (role IN ('user','assistant')),
+        content    TEXT        NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log('✅ Tabel chat_sessions + chat_messages');
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
+        ON chat_sessions(user_id, updated_at DESC)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_session
+        ON chat_messages(session_id, created_at)
+    `);
 
     // ── Reviews (P1 FLUTTER_P3_CONTRACTS.md) ─────────────────────────────────
     // Guest Reviews untuk GET /hotels/:id. Tabel terpisah (bukan kolom JSON)
@@ -251,8 +346,7 @@ async function initDB() {
         saved_token_id  TEXT NOT NULL,
         token_expires_at TIMESTAMPTZ,
         is_primary      BOOLEAN NOT NULL DEFAULT false,
-        // B4: julukan kartu ("Business") seperti layar wallet Figma.
-        label           TEXT,
+        label           TEXT, -- B4: julukan kartu
         created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE (user_id, saved_token_id)
       )

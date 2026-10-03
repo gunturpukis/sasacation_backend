@@ -12,7 +12,9 @@
 // bisa jalan untuk fitur lain (hotels, explore, dst) — hanya endpoint yang
 // butuh Firebase yang akan menolak request dengan pesan jelas.
 
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getMessaging } = require('firebase-admin/messaging');
 
 let app = null;
 let initError = null;
@@ -31,9 +33,8 @@ function loadServiceAccount() {
 try {
   const serviceAccount = loadServiceAccount();
   if (serviceAccount) {
-    app = admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
+    // firebase-admin v14: API modular (cert top-level, bukan admin.credential).
+    app = initializeApp({ credential: cert(serviceAccount) });
     console.log('✅ Firebase Admin SDK aktif (Auth + FCM siap dipakai)');
   } else {
     console.warn('⚠️  Firebase Admin SDK TIDAK di-init — FIREBASE_SERVICE_ACCOUNT_PATH/JSON belum diisi di .env');
@@ -57,8 +58,21 @@ function requireFirebase() {
   }
 }
 
+// Lazy getter — requireFirebase() dipanggil dulu oleh pemakai supaya errornya
+// jelas (FIREBASE_NOT_READY), bukan TypeError dari SDK.
+function auth() {
+  requireFirebase();
+  return getAuth(app);
+}
+
+function messaging() {
+  requireFirebase();
+  return getMessaging(app);
+}
+
 module.exports = {
-  admin,
+  auth,
+  messaging,
   isFirebaseReady,
   requireFirebase,
 };
