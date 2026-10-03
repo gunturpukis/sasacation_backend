@@ -1,5 +1,10 @@
 # Sprint 1 — Permintaan Backend dari Sesi Flutter (04 Okt 2026)
 
+> STATUS 2026-10-03: permintaan `GET /forex/rate` di bawah **DIGANTIKAN
+> kontrak F14** (`GET /settings` → `usd_to_idr_rate` + `pricing.fx`).
+> Sesi Flutter sudah bermigrasi ke F14 — endpoint `/forex/rate` TIDAK
+> diperlukan lagi, jangan dibuat.
+
 > Sesi Flutter mengeksekusi Sprint 1 ("Terasa Indonesia"). Dua item butuh
 > tambahan backend kecil. Tulis kontrak dulu, verifikasi curl, baru Flutter
 > mengonsumsi. Prioritas sesuai urutan.
