@@ -219,6 +219,7 @@ const hotelsRoutes       = require('./routes/hotels');
 const exploreRoutes      = require('./routes/explore');
 const bookingsRoutes     = require('./routes/bookings');
 const checkoutRoutes     = require('./routes/checkout');
+const paymentsRoutes     = require('./routes/payments');
 const aiRoutes           = require('./routes/ai');
 const ragRoutes          = require('./routes/rag');
 const notificationsRoutes = require('./routes/notifications');
@@ -236,6 +237,7 @@ const pollsRoutes     = require('./routes/polls');
 const groupsRoutes    = require('./routes/groups');
 const loyaltyRoutes   = require('./routes/loyalty');
 const tasksRoutes     = require('./routes/tasks');
+const weatherRoutes   = require('./routes/weather');
 const { loginLimiter, aiLimiter, generalLimiter } = require('./middleware/rateLimiter');
  
 const app = express();
@@ -285,6 +287,7 @@ app.use('/api/hotels',   hotelsRoutes);
 app.use('/api/explore',  exploreRoutes);
 app.use('/api/bookings', bookingsRoutes);
 app.use('/api/checkout', checkoutRoutes);
+app.use('/api/payments', paymentsRoutes);
 app.use('/api/ai',       aiLimiter, aiRoutes);
 app.use('/api/rag',      ragRoutes); // endpoint debug RAG
 app.use('/api/notifications', notificationsRoutes);
@@ -302,6 +305,7 @@ app.use('/api/polls', pollsRoutes);
 app.use('/api/groups', groupsRoutes);
 app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/api/weather', weatherRoutes);
  
 app.get('/health', async (_req, res) => {
   const { rows } = await pool.query('SELECT COUNT(*) FROM document_embeddings').catch(() => ({ rows: [{ count: 0 }] }));
@@ -325,6 +329,7 @@ app.get('/', (_req, res) => {
       explore:       'GET /api/explore | /api/explore/categories | /destinations | /restaurants',
       bookings:      'GET /api/bookings/my | /api/bookings/:id | PATCH /api/bookings/:id/cancel',
       checkout:      'POST /api/checkout/initiate | /api/checkout/pay | GET /api/checkout/methods | POST /api/checkout/webhook/midtrans (internal, dipanggil Midtrans)',
+      payments:      'GET /api/payments | GET /api/payments/:transactionId/invoice (PDF) | POST /api/payments/:transactionId/refund (admin)',
       ai:            'POST /api/ai/chat | /api/ai/search | /api/ai/trip-plan | /api/ai/generate-description',
       rag:           'GET /api/rag/search?q=... (debug endpoint, murni similarity search)',
       notifications: 'POST /api/notifications/register-token | /test | DELETE /api/notifications/token',
@@ -338,6 +343,7 @@ app.get('/', (_req, res) => {
       groups:         'POST /api/groups | GET /api/groups/my | GET/DELETE /api/groups/:id | POST /api/groups/:id/members | DELETE /api/groups/:id/members/:userId | POST /api/groups/:id/expenses | DELETE /api/groups/:id/expenses/:expenseId',
       loyalty:        'GET /api/loyalty (tier + travel pass)',
       tasks:          'POST /api/tasks | GET /api/tasks/my | PUT /api/tasks/:id | PATCH /api/tasks/:id/done | DELETE /api/tasks/:id',
+      weather:        'GET /api/weather?lat=&lng= (publik)',
     },
   });
 });

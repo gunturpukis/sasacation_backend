@@ -24,6 +24,7 @@
     "db:migrate:groups": "node src/config/migrateGroups.js",
     "db:migrate:a6": "node src/config/migrateA6.js",
     "db:migrate:tasks": "node src/config/migrateTasks.js",
+    "db:migrate:invoice-snapshot": "node src/config/migrateInvoiceSnapshot.js",
     "push:test": "node src/scripts/sendTestPush.js"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "firebase-admin": "^12.7.0",
     "jsonwebtoken": "^9.0.2",
     "midtrans-client": "^1.3.1",
+    "pdfkit": "^0.20.2",
     "pg": "^8.12.0",
     "uuid": "^14.0.2"
   },

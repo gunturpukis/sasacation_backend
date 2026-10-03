@@ -103,6 +103,50 @@
   `price_diff > 0` = perlu bayar tambahan (belum otomatis).
 - Kriteria: tombol "Reschedule" → endpoint ini → tampilkan selisih.
 
+### F12 — Invoice PDF + riwayat pembayaran [siap]
+- `GET /api/payments` (riwayat, `{ data, totalSpent }`) — endpoint ini sempat
+  tidak aktif, sekarang live.
+- `GET /api/payments/:transactionId/invoice` → unduh PDF
+  (`Content-Disposition: attachment`), pemilik/admin saja, hanya `status success`
+  (pending → 422, asing/tak ada → 404). Bahasa ikut `user_settings.language`.
+- Kriteria: tombol "Unduh Invoice" di tiap baris sukses Payment History.
+
+### F13 — Cuaca destinasi [siap, menunggu aktivasi key]
+- `GET /api/weather?lat=&lng=` (publik) → `{ current: { temp_c, feels_like_c,
+  humidity, condition, description, icon, wind_ms, location, observed_at },
+  alert: { severity: high|medium, kind: thunderstorm|heavy_rain, title, window } | null,
+  cached }`. Cache 10 menit.
+- `alert != null` → tampilkan kartu "Destination Alert" + tombol Reschedule
+  (`PATCH /api/bookings/:id/reschedule`). `alert == null` → sembunyikan kartu.
+- Status: kode live; key OpenWeather di server saat ini DITOLAK upstream (401).
+  Key baru biasanya butuh aktivasi beberapa jam — coba lagi nanti; tanpa key
+  endpoint balas 503 (bukan crash).
+
+### F14 — Kontrak currency + rate (prasyarat S1.1) [siap]
+- `GET /api/settings` → `currency: "USD"`, `usd_to_idr_rate: 16000` (global,
+  dari env `DEFAULT_CURRENCY` / `MIDTRANS_USD_TO_IDR_RATE`).
+- `POST /api/checkout/initiate` → `pricing.fx: { currency, usd_to_idr_rate }`.
+- Aturan: semua harga API dalam `currency`; Flutter JANGAN hardcode kurs —
+  baca dari kontrak ini. Per-user currency = scope berikutnya.
+
+### F15 — Refund (admin/backoffice) [siap]
+- `POST /api/payments/:transactionId/refund` (admin only)
+  body `{ amount? (USD, default full), reason? }` → full = booking ikut
+  `cancelled`; parsial = booking tetap. Gagal gateway = 502 tanpa ubah DB.
+  Notif `payment_refunded` terkirim ke user.
+- Kriteria: layar admin/support memanggil ini; app user cukup tampilkan
+  status `refunded` dari riwayat (tidak ada aksi user).
+
+### F16 — Taksonomi kategori + secrets [siap]
+- `GET /api/explore/categories[]` kini membawa `count` + `available`
+  (dari isi DB). **Sembunyikan chip dengan `available: false`.**
+  Pemetaan chip Figma: Beach→`beaches`, Mountain→`adventure`,
+  City→`culture`, sisanya 1:1 (`hotels`, `culinary`, `islands`).
+- Konvensi bahasa respons: error validasi Indonesia, konten user apa adanya,
+  invoice ikut `user_settings.language`. Dwibahasa penuh = scope berikutnya.
+- Secrets (`.env`, `firebase-service-account.json`) terkonfirmasi git-ignored
+  dan tidak terlacak — jangan pernah commit; `WEATHER_API_KEY` hanya di `.env`.
+
 ## Item BLOCKED (jangan dibuat UI-nya dulu / sembunyikan)
 - **B1 Cuaca** ("Weather Update: Bali", badai Ubud): butuh API key cuaca
   (mis. OpenWeather) di `WEATHER_API_KEY` — belum ada. Backend belum bangun.

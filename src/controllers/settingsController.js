@@ -7,6 +7,12 @@ const pool = require('../config/db');
 
 const DEFAULTS = { push_enabled: true, ai_personalization: true, language: 'en' };
 
+// Mata uang & kurs — KONFIG GLOBAL (bukan per user), single source of truth
+// untuk Flutter Sprint 1. Semua harga API dalam `currency`; konversi ke IDR
+// (Midtrans) memakai `usd_to_idr_rate`. Per-user currency = scope berikutnya.
+const CURRENCY = process.env.DEFAULT_CURRENCY || 'USD';
+const USD_TO_IDR_RATE = Number(process.env.MIDTRANS_USD_TO_IDR_RATE || 16000);
+
 // GET /api/settings
 const getSettings = async (req, res) => {
   try {
@@ -19,11 +25,13 @@ const getSettings = async (req, res) => {
         push_enabled: s.push_enabled ?? true,
         ai_personalization: s.ai_personalization ?? true,
         language: s.language || 'en',
+        currency: CURRENCY,
+        usd_to_idr_rate: USD_TO_IDR_RATE,
       },
     });
   } catch (e) {
     // Tabel belum ada (migrasi B4 belum jalan) → default, bukan 500.
-    if (e.code === '42P01') return res.json({ success: true, data: { user_id: req.user.id, ...DEFAULTS } });
+    if (e.code === '42P01') return res.json({ success: true, data: { user_id: req.user.id, ...DEFAULTS, currency: CURRENCY, usd_to_idr_rate: USD_TO_IDR_RATE } });
     res.status(500).json({ success: false, message: 'Server error', error: e.message });
   }
 };
@@ -65,4 +73,4 @@ const updateSettings = async (req, res) => {
   }
 };
 
-module.exports = { getSettings, updateSettings };
+module.exports = { getSettings, updateSettings, CURRENCY, USD_TO_IDR_RATE };

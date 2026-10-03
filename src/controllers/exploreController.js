@@ -89,18 +89,34 @@ const getRestaurantById = async (req, res) => {
   }
 };
 
-const getCategories = (_req, res) => {
-  res.json({
-    success: true,
-    data: [
-      { id: 'beaches',   label: 'Beaches',   icon: 'beach_access',    description: 'Beautiful beaches in Lombok' },
-      { id: 'hotels',    label: 'Hotels',    icon: 'hotel',           description: 'Luxury resorts & villas' },
-      { id: 'culinary',  label: 'Culinary',  icon: 'restaurant',      description: 'Local delicacies' },
-      { id: 'islands',   label: 'Islands',   icon: 'directions_boat', description: 'Gili Islands paradise' },
-      { id: 'adventure', label: 'Adventure', icon: 'hiking',          description: 'Mount Rinjani trek' },
-      { id: 'culture',   label: 'Culture',   icon: 'museum',          description: 'Sasak tradition' },
-    ],
-  });
+// GET /api/explore/categories — taksonomi tunggal backend (Fase 0).
+// Tiap kategori membawa `count` + `available` dari ISI DB NYATA supaya
+// Flutter bisa sembunyikan chip kosong (prinsip no-fake-data).
+// Pemetaan chip Figma: Beach→beaches, Mountain→adventure (konten trekking),
+// City→culture (konten kota/tradisi). Chip tanpa konten disembunyikan.
+const getCategories = async (_req, res) => {
+  try {
+    const [{ rows: destCounts }, { rows: hotelRows }, { rows: restoRows }] = await Promise.all([
+      pool.query(`SELECT sub_category, COUNT(*) AS n FROM destinations GROUP BY sub_category`),
+      pool.query(`SELECT COUNT(*) AS n FROM hotels WHERE available = true`),
+      pool.query(`SELECT COUNT(*) AS n FROM restaurants`),
+    ]);
+    const destN = Object.fromEntries(destCounts.map((r) => [r.sub_category, Number(r.n)]));
+    const defs = [
+      { id: 'beaches',   label: 'Beaches',   icon: 'beach_access',    description: 'Beautiful beaches in Lombok', count: destN.Beaches || 0 },
+      { id: 'hotels',    label: 'Hotels',    icon: 'hotel',           description: 'Luxury resorts & villas', count: Number(hotelRows[0].n) },
+      { id: 'culinary',  label: 'Culinary',  icon: 'restaurant',      description: 'Local delicacies', count: Number(restoRows[0].n) },
+      { id: 'islands',   label: 'Islands',   icon: 'directions_boat', description: 'Gili Islands paradise', count: destN.Islands || 0 },
+      { id: 'adventure', label: 'Adventure', icon: 'hiking',          description: 'Mount Rinjani trek', count: destN.Adventure || 0 },
+      { id: 'culture',   label: 'Culture',   icon: 'museum',          description: 'Sasak tradition', count: destN.Culture || 0 },
+    ];
+    res.json({
+      success: true,
+      data: defs.map((d) => ({ ...d, available: d.count > 0 })),
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
 };
 
 module.exports = { getExplore, getDestinations, getDestinationById, getRestaurants, getRestaurantById, getCategories };

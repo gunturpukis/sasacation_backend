@@ -11,6 +11,35 @@ const snap = new midtransClient.Snap({
   serverKey: process.env.MIDTRANS_SERVER_KEY,
   clientKey: process.env.MIDTRANS_CLIENT_KEY,
 });
+
+// Core API dipakai untuk operasi server-ke-server di luar Snap
+// (saat ini: refund). Instansiasi malas agar import service ini tidak
+// melempar bila kredensial belum diisi (boot tetap jalan, call yang gagal).
+let coreApi = null;
+function getCoreApi() {
+  if (!coreApi) {
+    coreApi = new midtransClient.CoreApi({
+      isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
+      serverKey: process.env.MIDTRANS_SERVER_KEY,
+      clientKey: process.env.MIDTRANS_CLIENT_KEY,
+    });
+  }
+  return coreApi;
+}
+
+/**
+ * Refund ke Midtrans (full atau parsial).
+ * @param {string} orderId - payments.transaction_id
+ * @param {number} amountIdr - nominal refund dalam IDR (integer)
+ * @param {string} [reason]
+ * @returns {Promise<object>} respons mentah Midtrans
+ */
+async function refundTransaction(orderId, amountIdr, reason) {
+  return getCoreApi().transaction.refund(orderId, {
+    amount: Math.round(amountIdr),
+    ...(reason ? { reason: String(reason).slice(0, 200) } : {}),
+  });
+}
  
 /**
  * Buat transaksi Snap baru di Midtrans.
@@ -111,5 +140,5 @@ function mapToEnabledPayments(paymentMethod) {
   return map[paymentMethod] || undefined; // undefined -> Snap tampilkan semua channel (fallback aman)
 }
  
-module.exports = { createTransaction, verifySignature, mapTransactionStatus, mapToEnabledPayments };
+module.exports = { createTransaction, verifySignature, mapTransactionStatus, mapToEnabledPayments, refundTransaction };
  

@@ -152,7 +152,11 @@ async function initDB() {
         // B1: data Snap untuk resume pembayaran pending dari My Trips.
         snap_token     TEXT,
         redirect_url   TEXT,
-        snap_expires_at TIMESTAMPTZ
+        snap_expires_at TIMESTAMPTZ,
+        // Invoice PDF: snapshot komponen harga saat ditagih (anti-drift tarif).
+        tax_amount     NUMERIC,
+        service_fee    NUMERIC,
+        cleaning_fee   NUMERIC
       )
     `);
     console.log('✅ Tabel payments');

@@ -397,7 +397,7 @@ const initiateCheckout = async (req, res) => {
         nights,
         guestCount: Number(guestCount),
         notes: notes || '',
-        pricing: { pricePerNight, subtotal, tax, taxRate: taxRate * 100, serviceFee, cleaningFee, total, currency: 'USD' },
+        pricing: { pricePerNight, subtotal, tax, taxRate: taxRate * 100, serviceFee, cleaningFee, total, currency: 'USD', fx: { currency: 'USD', usd_to_idr_rate: USD_TO_IDR_RATE } },
         paymentMethods: PAYMENT_METHODS,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       },
@@ -439,7 +439,11 @@ const processPayment = async (req, res) => {
     const pricePerNight = Number(hotel.price);
     const subtotal = pricePerNight * nights;
     // B4: rumus HARUS identik dengan initiateCheckout di atas.
-    const total = subtotal + Math.round(subtotal * 0.11) + 15 + (Number(hotel.cleaning_fee) || 0);
+    // Snapshot komponen disimpan ke payments untuk invoice (anti-drift tarif).
+    const taxAmount = Math.round(subtotal * 0.11);
+    const serviceFee = 15;
+    const cleaningFee = Number(hotel.cleaning_fee) || 0;
+    const total = subtotal + taxAmount + serviceFee + cleaningFee;
  
     // FIX audit KRITIS: sebelumnya TIDAK ADA pengecekan ini sama sekali —
     // dua user bisa membayar sukses untuk hotel & tanggal yang sama tanpa
@@ -504,10 +508,10 @@ const processPayment = async (req, res) => {
 
     // 3. Buat payment 'pending' + data Snap untuk resume.
     const paymentResult = await client.query(`
-      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status, snap_token, redirect_url, snap_expires_at)
-      VALUES ($1,$2,$3,$4,$5,'USD','pending',$6,$7,$8)
+      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status, snap_token, redirect_url, snap_expires_at, tax_amount, service_fee, cleaning_fee)
+      VALUES ($1,$2,$3,$4,$5,'USD','pending',$6,$7,$8,$9,$10,$11)
       RETURNING *
-    `, [transactionId, booking.id, req.user.id, paymentMethod, total, snapResult.token, snapResult.redirect_url, snapExpiresAt]);
+    `, [transactionId, booking.id, req.user.id, paymentMethod, total, snapResult.token, snapResult.redirect_url, snapExpiresAt, taxAmount, serviceFee, cleaningFee]);
     const payment = paymentResult.rows[0];
 
     await client.query('COMMIT');
