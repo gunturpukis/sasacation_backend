@@ -70,7 +70,9 @@ const chat = async (req, res) => {
       if (lastUserMessage) {
         await chatSessionService.appendMessage(resolvedSessionId, 'user', lastUserMessage);
       }
-      await chatSessionService.appendMessage(resolvedSessionId, 'assistant', reply);
+      // F.5: simpan tripPlan bersama pesan assistant supaya kartu itinerary
+      // bisa di-restore setelah app restart (GET /chat/sessions/latest).
+      await chatSessionService.appendMessage(resolvedSessionId, 'assistant', reply, tripPlan);
  
       // Fire-and-forget: TIDAK di-await supaya tidak menambah latency
       // response chat utama. Kegagalannya sudah di-handle (log-only) di
@@ -97,8 +99,8 @@ const search = async (req, res) => {
     const { query } = req.body;
     if (!query?.trim())
       return res.status(400).json({ success: false, message: 'query wajib diisi' });
- 
-    const result = await smartSearch({ query });
+
+    const result = await smartSearch({ query, userId: req.user?.id || null });
     res.json({ success: true, data: result });
   } catch (e) {
     console.error('AI Search error:', e);
@@ -134,4 +136,20 @@ const tripPlan = async (req, res) => {
   }
 };
  
-module.exports = { chat, search, generateDesc, tripPlan };
+const { compareHotels } = require('../services/compareService');
+
+const compare = async (req, res) => {
+  try {
+    // Terima alias FE: hotelIds | hotel_ids | ids (maks 3, min 2).
+    const hotelIds = req.body.hotelIds || req.body.hotel_ids || req.body.ids;
+    if (!Array.isArray(hotelIds) || hotelIds.length < 2 || hotelIds.length > 3)
+      return res.status(400).json({ success: false, message: 'hotelIds wajib array 2–3 id hotel' });
+    const result = await compareHotels(hotelIds, req.user?.id);
+    res.json({ success: true, data: result });
+  } catch (e) {
+    console.error('AI Compare error:', e);
+    res.status(e.status || 500).json({ success: false, message: e.message || 'AI compare error' });
+  }
+};
+
+module.exports = { chat, search, generateDesc, tripPlan, compare };

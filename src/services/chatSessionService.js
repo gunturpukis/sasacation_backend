@@ -30,11 +30,22 @@ async function getOrCreateSession(userId, sessionId) {
   return created.rows[0].id;
 }
 
-async function appendMessage(sessionId, role, content) {
-  await pool.query(
-    'INSERT INTO chat_messages (session_id, role, content) VALUES ($1, $2, $3)',
-    [sessionId, role, content]
-  );
+async function appendMessage(sessionId, role, content, tripPlan = null) {
+  try {
+    await pool.query(
+      'INSERT INTO chat_messages (session_id, role, content, trip_plan) VALUES ($1, $2, $3, $4)',
+      [sessionId, role, content, tripPlan ? JSON.stringify(tripPlan) : null]
+    );
+  } catch (e) {
+    // 42703 = undefined_column → DB belum dimigrasi (migrateChatTripPlan.js
+    // belum jalan): fallback ke insert tanpa trip_plan agar chat tetap jalan.
+    if (e.code === '42703') {
+      await pool.query(
+        'INSERT INTO chat_messages (session_id, role, content) VALUES ($1, $2, $3)',
+        [sessionId, role, content]
+      );
+    } else throw e;
+  }
   await pool.query('UPDATE chat_sessions SET updated_at = NOW() WHERE id = $1', [sessionId]);
 
   // Judul sesi = potongan pesan pertama user, biar kalau nanti ada UI daftar
@@ -58,16 +69,26 @@ async function getLatestSessionWithMessages(userId) {
   if (session.rows.length === 0) return null;
 
   const sessionId = session.rows[0].id;
-  const messages = await pool.query(
-    `SELECT role, content, created_at FROM chat_messages
-     WHERE session_id = $1 ORDER BY created_at ASC`,
-    [sessionId]
-  );
+  let messages;
+  try {
+    messages = (await pool.query(
+      `SELECT role, content, trip_plan, created_at FROM chat_messages
+       WHERE session_id = $1 ORDER BY created_at ASC`,
+      [sessionId]
+    )).rows;
+  } catch (e) {
+    if (e.code !== '42703') throw e;
+    messages = (await pool.query(
+      `SELECT role, content, created_at FROM chat_messages
+       WHERE session_id = $1 ORDER BY created_at ASC`,
+      [sessionId]
+    )).rows;
+  }
 
   return {
     sessionId,
     title: session.rows[0].title,
-    messages: messages.rows,
+    messages,
   };
 }
 

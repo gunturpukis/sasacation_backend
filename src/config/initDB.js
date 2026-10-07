@@ -199,11 +199,15 @@ async function initDB() {
         user_id           UUID        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         budget_min         NUMERIC,
         budget_max         NUMERIC,
+        budget_tier        TEXT,
         preferred_group_type TEXT     CHECK (preferred_group_type IN ('solo','couple','family','friends')),
         min_star_rating    NUMERIC,
         interests          TEXT[]     DEFAULT '{}',
         dislikes           TEXT[]     DEFAULT '{}',
         styles             TEXT[]     DEFAULT '{}',
+        trip_types         TEXT[]     DEFAULT '{}',
+        amenity_prefs      TEXT[]     DEFAULT '{}',
+        location_prefs     TEXT[]     DEFAULT '{}',
         raw_signals        JSONB      DEFAULT '[]',
         updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -243,6 +247,7 @@ async function initDB() {
         session_id UUID        NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
         role       TEXT        NOT NULL CHECK (role IN ('user','assistant')),
         content    TEXT        NOT NULL,
+        trip_plan  JSONB       NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
@@ -553,6 +558,21 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_embeddings_doc_type
         ON document_embeddings(doc_type)
     `);
+
+    // ── F.1: hotel_vibes (taksonomi vibe untuk grounding search) ────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hotel_vibes (
+        hotel_id   UUID NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+        vibe       TEXT NOT NULL CHECK (vibe IN ('quiet','romantic','family','luxury','budget','nightlife','beach','culture','adventure','nature','couple','business')),
+        confidence REAL NOT NULL DEFAULT 1.0 CHECK (confidence >= 0 AND confidence <= 1),
+        source     TEXT NOT NULL DEFAULT 'seed' CHECK (source IN ('seed','admin','ai')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (hotel_id, vibe)
+      )
+    `);
+    console.log('✅ Tabel hotel_vibes (F.1)');
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_hotel_vibes_vibe ON hotel_vibes(vibe)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_hotel_vibes_hotel ON hotel_vibes(hotel_id)`);
 
     await client.query('COMMIT');
     console.log('\n🎉 Schema database berhasil dibuat!');

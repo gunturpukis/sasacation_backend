@@ -39,11 +39,15 @@ async function getUserContext(userId) {
   if (prefs) {
     if (prefs.budget_min || prefs.budget_max)
       lines.push(`Budget biasanya: $${prefs.budget_min || 0}–$${prefs.budget_max || '?'}`);
+    if (prefs.budget_tier) lines.push(`Tier budget: ${prefs.budget_tier}`);
     if (prefs.preferred_group_type) lines.push(`Biasanya bepergian: ${prefs.preferred_group_type}`);
     if (prefs.min_star_rating) lines.push(`Minimal rating hotel yang disukai: ${prefs.min_star_rating} bintang`);
     if (prefs.styles?.length) lines.push(`Gaya travel: ${prefs.styles.join(', ')}`);
     if (prefs.interests?.length) lines.push(`Minat: ${prefs.interests.join(', ')}`);
     if (prefs.dislikes?.length) lines.push(`Tidak suka: ${prefs.dislikes.join(', ')}`);
+    if (prefs.trip_types?.length) lines.push(`Tipe trip: ${prefs.trip_types.join(', ')}`);
+    if (prefs.amenity_prefs?.length) lines.push(`Fasilitas favorit: ${prefs.amenity_prefs.join(', ')}`);
+    if (prefs.location_prefs?.length) lines.push(`Lokasi favorit: ${prefs.location_prefs.join(', ')}`);
   }
   if (wishlist.length) {
     lines.push(`Wishlist saat ini: ${wishlist.map(w => `${w.name} (${w.location})`).join('; ')}`);

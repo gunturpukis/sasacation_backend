@@ -1,4 +1,91 @@
 const pool = require('../config/db');
+const { getOrBuildSummary, buildPersonalizedLine } = require('../services/reviewSummaryService');
+
+// GET /api/hotels/:id/reviews?page=&limit=
+// Daftar review paginasi (publik). Beda dari GET /:id yang menyertakan
+// 50 review terbaru inline — endpoint ini untuk tab "Lihat semua".
+const getHotelReviews = async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
+    const offset = (page - 1) * limit;
+    let rows = [];
+    let total = 0;
+    try {
+      const { rows: r } = await pool.query(
+        `SELECT id, user_name, avatar, rating, stayed, text, created_at
+         FROM reviews
+         WHERE hotel_id = $1 AND text IS NOT NULL AND text <> ''
+         ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        [req.params.id, limit, offset]
+      );
+      rows = r.map((x) => ({
+        id: x.id,
+        user_name: x.user_name,
+        avatar: x.avatar || null,
+        rating: x.rating === null ? null : Number(x.rating),
+        stayed: x.stayed || null,
+        date: x.created_at ? new Date(x.created_at).toISOString().slice(0, 10) : null,
+        text: x.text,
+      }));
+      const { rows: c } = await pool.query(
+        `SELECT COUNT(*) FROM reviews WHERE hotel_id = $1 AND text IS NOT NULL AND text <> ''`,
+        [req.params.id]
+      );
+      total = Number(c[0].count);
+    } catch (e) {
+      if (e.code !== '42P01') throw e;
+    }
+    res.json({ success: true, data: rows, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+// GET /api/hotels/:id/review-summary (publik, personal bila login)
+// { avgRating, count, pros[], cons[], summaryText, personalizedLine?, updatedAt, isSeeded }
+const getReviewSummary = async (req, res) => {
+  try {
+    const summary = await getOrBuildSummary(req.params.id);
+    if (!summary) return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
+    let personalizedLine = null;
+    if (req.user?.id) {
+      try {
+        const { rows } = await pool.query(
+          'SELECT interests, styles, trip_types, amenity_prefs FROM user_preferences WHERE user_id = $1',
+          [req.user.id]
+        );
+        personalizedLine = buildPersonalizedLine(summary, rows[0]);
+      } catch (_) { /* fail-soft: tetap kembalikan summary tanpa baris personal */ }
+    }
+    // Hybrid (keputusan MVP): seed awal berlabel dummy. Heuristik: semua id
+    // review masih berprefix seed 'd0000004-' → isSeeded true (FE tampilkan
+    // badge "contoh"). Begitu ada 1 review riil (booking selesai), false.
+    let isSeeded = false;
+    try {
+      const { rows } = await pool.query(
+        `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE id::text NOT LIKE 'd0000004-%') AS real_count FROM reviews WHERE hotel_id = $1`,
+        [req.params.id]
+      );
+      isSeeded = Number(rows[0]?.total || 0) > 0 && Number(rows[0]?.real_count || 0) === 0;
+    } catch (_) { /* tabel belum ada → false */ }
+    res.json({
+      success: true,
+      data: {
+        avgRating: summary.avg_rating === null ? null : Number(summary.avg_rating),
+        count: Number(summary.review_count),
+        pros: summary.pros || [],
+        cons: summary.cons || [],
+        summaryText: summary.summary_text,
+        personalizedLine,
+        updatedAt: summary.updated_at || null,
+        isSeeded,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
 
 const getHotels = async (req, res) => {
   try {
@@ -267,4 +354,4 @@ const deleteHotel = async (req, res) => {
   }
 };
 
-module.exports = { getHotels, getHotelById, getNearbyHotels, getMyHotels, createHotel, updateHotel, deleteHotel };
+module.exports = { getHotels, getHotelById, getHotelReviews, getReviewSummary, getNearbyHotels, getMyHotels, createHotel, updateHotel, deleteHotel };
