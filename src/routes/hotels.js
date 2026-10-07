@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getHotels, getHotelById, getHotelReviews, getReviewSummary, getNearbyHotels,
+  getHotels, getHotelById, getHotelReviews, createHotelReview, getReviewSummary, getNearbyHotels,
   getMyHotels, createHotel, updateHotel, deleteHotel,
 } = require('../controllers/hotelsController');
 const { authMiddleware, partnerMiddleware } = require('../middleware/auth');
@@ -22,6 +22,7 @@ router.get('/nearby', getNearbyHotels); // HARUS sebelum /:id, kalau tidak "near
 router.get('/my', authMiddleware, partnerMiddleware, getMyHotels); // HARUS sebelum /:id juga
 // F.2: HARUS sebelum /:id agar "abc/reviews" tidak tertangkap sebagai :id="abc/reviews"
 router.get('/:id/reviews', getHotelReviews);
+router.post('/:id/reviews', authMiddleware, createHotelReview);
 router.get('/:id/review-summary', optionalAuth, getReviewSummary);
 router.get('/:id', getHotelById);
 

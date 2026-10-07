@@ -1,5 +1,84 @@
 const pool = require('../config/db');
 const { getOrBuildSummary, buildPersonalizedLine } = require('../services/reviewSummaryService');
+const loyaltyService = require('../services/loyaltyService');
+
+// POST /api/hotels/:id/reviews (login wajib) — body { rating 1..5, text, stayed? }.
+// Satu ulasan per user per hotel: kirim lagi = ubah ulasan (tanpa poin ganda).
+// Ulasan pertama user untuk hotel ini → +25 poin (LOYALTY_DEFINITION.md §1,
+// earn_review). Pencatatan poin fail-soft: ulasan TIDAK BOLEH gagal hanya
+// karena ledger bermasalah. Cache review_summaries otomatis dihitung ulang
+// pada GET berikutnya (getOrBuildSummary melihat review_count berubah).
+const createHotelReview = async (req, res) => {
+  try {
+    const hotelId = req.params.id;
+    const { rating, text, stayed } = req.body;
+    const score = Number(rating);
+    if (!Number.isFinite(score) || score < 1 || score > 5)
+      return res.status(400).json({ success: false, message: 'rating wajib 1..5' });
+    const cleanText = String(text || '').trim();
+    if (!cleanText)
+      return res.status(400).json({ success: false, message: 'text ulasan wajib diisi' });
+    if (cleanText.length > 2000)
+      return res.status(400).json({ success: false, message: 'text ulasan maksimal 2000 karakter' });
+
+    const { rows: hotelRows } = await pool.query('SELECT id FROM hotels WHERE id = $1', [hotelId]);
+    if (hotelRows.length === 0)
+      return res.status(404).json({ success: false, message: 'Hotel tidak ditemukan' });
+
+    const { rows: existing } = await pool.query(
+      'SELECT id FROM reviews WHERE hotel_id = $1 AND user_id = $2',
+      [hotelId, req.user.id]
+    );
+    let review;
+    if (existing.length > 0) {
+      const { rows } = await pool.query(
+        `UPDATE reviews SET rating = $1, text = $2, stayed = $3, created_at = NOW()
+         WHERE id = $4 RETURNING id, user_name, avatar, rating, stayed, text, created_at`,
+        [score, cleanText, stayed || null, existing[0].id]
+      );
+      review = rows[0];
+    } else {
+      const { rows } = await pool.query(
+        `INSERT INTO reviews (hotel_id, user_id, user_name, avatar, rating, stayed, text)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, user_name, avatar, rating, stayed, text, created_at`,
+        [hotelId, req.user.id, req.user.name, req.user.avatar || null, score, stayed || null, cleanText]
+      );
+      review = rows[0];
+    }
+
+    // +25 poin hanya untuk ulasan pertama (idempotent via reference).
+    let earned = 0;
+    try {
+      const entry = await loyaltyService.addEarn(pool, req.user.id, loyaltyService.REVIEW_POINTS, 'earn_review', {
+        referenceId: `review:${req.user.id}:${hotelId}`,
+        note: `Ulasan hotel ${hotelId}`,
+      });
+      if (entry) earned = loyaltyService.REVIEW_POINTS;
+    } catch (e) {
+      console.error('[reviews] earn_review gagal (diabaikan):', e.message);
+    }
+
+    res.status(existing.length > 0 ? 200 : 201).json({
+      success: true,
+      message: existing.length > 0 ? 'Ulasan diperbarui' : 'Ulasan terkirim',
+      data: {
+        id: review.id,
+        user_name: review.user_name,
+        avatar: review.avatar || null,
+        rating: Number(review.rating),
+        stayed: review.stayed || null,
+        date: review.created_at ? new Date(review.created_at).toISOString().slice(0, 10) : null,
+        text: review.text,
+        earned_points: earned,
+      },
+    });
+  } catch (e) {
+    if (e.code === '42P01')
+      return res.status(500).json({ success: false, message: 'Tabel reviews belum dimigrasi. Jalankan npm run db:migrate:reviews' });
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
 
 // GET /api/hotels/:id/reviews?page=&limit=
 // Daftar review paginasi (publik). Beda dari GET /:id yang menyertakan
@@ -354,4 +433,4 @@ const deleteHotel = async (req, res) => {
   }
 };
 
-module.exports = { getHotels, getHotelById, getHotelReviews, getReviewSummary, getNearbyHotels, getMyHotels, createHotel, updateHotel, deleteHotel };
+module.exports = { getHotels, getHotelById, getHotelReviews, createHotelReview, getReviewSummary, getNearbyHotels, getMyHotels, createHotel, updateHotel, deleteHotel };
