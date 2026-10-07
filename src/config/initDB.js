@@ -335,6 +335,39 @@ async function initDB() {
         ON wallet_transactions(reference_id)
     `);
 
+    // ── Loyalty Ledger (LOYALTY_DEFINITION.md — poin saja, bukan e-money) ────
+    // Saldo = SUM ledger belum kedaluwarsa; loyalty_points dipertahankan
+    // sebagai cache/kompatibilitas. Lihat migrateLoyaltyLedger.js untuk DB lama.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS loyalty_ledger (
+        id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id      UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        points       INT         NOT NULL CHECK (points <> 0),
+        type         TEXT        NOT NULL CHECK (type IN (
+                       'earn_register','earn_review','earn_booking','earn_topup',
+                       'legacy_migration',
+                       'transfer_in','transfer_out',
+                       'redeem','recredit','clawback')),
+        reference_id TEXT        UNIQUE,
+        note         TEXT,
+        expires_at   TIMESTAMPTZ,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log('✅ Tabel loyalty_ledger');
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_loyalty_ledger_user_created
+        ON loyalty_ledger(user_id, created_at DESC)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_loyalty_ledger_user_expiry
+        ON loyalty_ledger(user_id, expires_at)
+    `);
+    await client.query(`
+      ALTER TABLE payments
+      ADD COLUMN IF NOT EXISTS redeemed_points INT NOT NULL DEFAULT 0
+    `);
+
     // ── Saved Payment Methods (P4 FLUTTER_P3_CONTRACTS.md) ───────────────────
     // Token vault Midtrans (saved_token_id), BUKAN nomor kartu. Kartu tersimpan
     // saat checkout dengan save_card=true + sukses webhook. Lihat juga
@@ -573,6 +606,21 @@ async function initDB() {
     console.log('✅ Tabel hotel_vibes (F.1)');
     await client.query(`CREATE INDEX IF NOT EXISTS idx_hotel_vibes_vibe ON hotel_vibes(vibe)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_hotel_vibes_hotel ON hotel_vibes(hotel_id)`);
+
+    // ── F.2: review_summaries (cache ringkasan review per hotel) ─────────────
+    // Lihat src/config/migrateReviewSummaries.js untuk DB yang sudah ada.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS review_summaries (
+        hotel_id      UUID        PRIMARY KEY REFERENCES hotels(id) ON DELETE CASCADE,
+        pros          TEXT[]      NOT NULL DEFAULT '{}',
+        cons          TEXT[]      NOT NULL DEFAULT '{}',
+        avg_rating    NUMERIC(3,2),
+        review_count  INT         NOT NULL DEFAULT 0,
+        summary_text  TEXT,
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log('✅ Tabel review_summaries (F.2)');
 
     await client.query('COMMIT');
     console.log('\n🎉 Schema database berhasil dibuat!');

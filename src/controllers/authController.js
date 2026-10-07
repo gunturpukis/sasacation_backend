@@ -2,6 +2,17 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 const { auth, requireFirebase } = require('../config/firebase');
+const loyaltyService = require('../services/loyaltyService');
+
+// Bonus selamat datang — fail-soft: registrasi TIDAK BOLEH gagal hanya
+// karena pencatatan poin gagal (LOYALTY_DEFINITION.md §1).
+async function grantWelcomeQuietly(userId) {
+  try {
+    await loyaltyService.awardWelcome(pool, userId);
+  } catch (e) {
+    console.error('[auth] welcome points gagal (diabaikan):', e.message);
+  }
+}
 
 function makeToken(user) {
   return jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
@@ -30,6 +41,7 @@ const register = async (req, res) => {
     );
     const user = rows[0];
     const token = makeToken(user);
+    grantWelcomeQuietly(user.id); // +50 poin (LOYALTY_DEFINITION.md §1)
     res.status(201).json({ success: true, message: 'Registrasi berhasil', data: { user: safeUser(user), token } });
   } catch (e) {
     res.status(500).json({ success: false, message: 'Server error', error: e.message });
@@ -76,6 +88,7 @@ const socialLogin = async (req, res) => {
         [name || email.split('@')[0], email, provider, providerId, avatar || null]
       );
       user = inserted.rows[0];
+      grantWelcomeQuietly(user.id); // akun baru via social → +50 poin
     } else {
       const updated = await pool.query(
         `UPDATE users SET provider=$1, provider_id=$2, avatar=COALESCE($3, avatar), updated_at=NOW()
@@ -131,6 +144,7 @@ const firebaseLogin = async (req, res) => {
         [name || email.split('@')[0], email, provider, uid, uid, picture || null]
       );
       user = inserted.rows[0];
+      grantWelcomeQuietly(user.id); // akun baru via Firebase → +50 poin
     } else {
       const updated = await pool.query(
         `UPDATE users SET firebase_uid = $1, provider = $2, avatar = COALESCE($3, avatar), updated_at = NOW()

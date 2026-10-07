@@ -161,6 +161,25 @@ const refundPayment = async (req, res) => {
         `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status IN ('pending','confirmed')`,
         [payment.booking_id]
       );
+      // Loyalty: poin yang dipakai redeem untuk booking ini kembali ke user
+      // (mereka tidak jadi menginap tapi sudah bayar dengan poin). Idempotent.
+      const redeemed = Number(payment.redeemed_points) || 0;
+      if (redeemed > 0) {
+        try {
+          await client.query(
+            `INSERT INTO loyalty_ledger (user_id, points, type, reference_id, note)
+             VALUES ($1, $2, 'recredit', $3, $4)
+             ON CONFLICT (reference_id) DO NOTHING`,
+            [payment.user_id, redeemed, `recredit:${payment.transaction_id}`, `Poin kembali — refund penuh ${payment.transaction_id}`]
+          );
+          await client.query(
+            `UPDATE loyalty_points SET points = points + $1, updated_at = NOW() WHERE user_id = $2`,
+            [redeemed, payment.user_id]
+          );
+        } catch (e) {
+          if (e.code !== '42P01') throw e; // tabel belum dimigrasi → skip
+        }
+      }
     }
     await client.query('COMMIT');
 

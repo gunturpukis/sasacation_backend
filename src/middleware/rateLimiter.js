@@ -41,4 +41,16 @@ const generalLimiter = rateLimit({
 });
  
 module.exports = { loginLimiter, aiLimiter, generalLimiter };
+
+// Limiter ketat untuk operasi bernilai uang/poin (transfer, redeem) —
+// anti-fraud LOYALTY_DEFINITION.md §5: redeem/transfer dibatasi per-IP.
+const moneyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 menit
+  max: 30, // 30 operasi/15 mnt per IP — longgar untuk pemakaian normal
+  message: { success: false, message: 'Terlalu banyak transaksi. Coba lagi dalam 15 menit.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+module.exports.moneyLimiter = moneyLimiter;
  

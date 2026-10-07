@@ -31,6 +31,10 @@
     "db:migrate:tasks": "node src/config/migrateTasks.js",
     "db:migrate:invoice-snapshot": "node src/config/migrateInvoiceSnapshot.js",
     "db:migrate:legacy": "node src/config/migrateLegacy.js",
+    "db:migrate:loyalty-ledger": "node src/config/migrateLoyaltyLedger.js",
+    "db:migrate:chat-memory": "node src/config/migrateChatMemory.js",
+    "db:migrate:notifications": "node src/config/migrateNotifications.js",
+    "db:migrate:user-data": "node src/config/migrateUserData.js",
     "push:test": "node src/scripts/sendTestPush.js"
   },
   "dependencies": {

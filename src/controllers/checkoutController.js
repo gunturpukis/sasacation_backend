@@ -327,6 +327,7 @@
  
 const pool = require('../config/db');
 const midtransService = require('../services/midtransService');
+const loyaltyService = require('../services/loyaltyService');
 const { captureSavedCard } = require('../services/paymentMethodService');
 const { notifyUser, buildAction } = require('../services/notificationService');
  
@@ -385,6 +386,26 @@ const initiateCheckout = async (req, res) => {
     const tax = Math.round(subtotal * taxRate);
     const total = subtotal + tax + serviceFee + cleaningFee;
 
+    // Loyalty redeem (LOYALTY_DEFINITION.md §2): quote saja di sini, spend
+    // dicatat saat POST /pay. pricing.total = yang ditagih (sudah diskon).
+    let redeemPoints = 0;
+    let discountPoints = 0;
+    if (req.body.redeem_points !== undefined) {
+      const qty = Number(req.body.redeem_points);
+      if (!Number.isInteger(qty)) {
+        return res.status(400).json({ success: false, message: 'redeem_points harus bilangan bulat' });
+      }
+      try {
+        const balance = await loyaltyService.getBalance(pool, req.user.id);
+        const q = loyaltyService.quoteRedeem({ balance, redeemPoints: qty, subtotalUsd: subtotal });
+        redeemPoints = q.redeemPoints;
+        discountPoints = q.discountUsd;
+      } catch (e) {
+        return res.status(e.status || 400).json({ success: false, message: e.message });
+      }
+    }
+    const totalAfterRedeem = Math.max(0, Math.round((total - discountPoints) * 100) / 100);
+
     res.json({
       success: true,
       data: {
@@ -397,7 +418,7 @@ const initiateCheckout = async (req, res) => {
         nights,
         guestCount: Number(guestCount),
         notes: notes || '',
-        pricing: { pricePerNight, subtotal, tax, taxRate: taxRate * 100, serviceFee, cleaningFee, total, currency: 'USD', fx: { currency: 'USD', usd_to_idr_rate: USD_TO_IDR_RATE } },
+        pricing: { pricePerNight, subtotal, tax, taxRate: taxRate * 100, serviceFee, cleaningFee, total: totalAfterRedeem, discount_points: discountPoints, redeem_points: redeemPoints, currency: 'USD', fx: { currency: 'USD', usd_to_idr_rate: USD_TO_IDR_RATE } },
         paymentMethods: PAYMENT_METHODS,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       },
@@ -443,7 +464,28 @@ const processPayment = async (req, res) => {
     const taxAmount = Math.round(subtotal * 0.11);
     const serviceFee = 15;
     const cleaningFee = Number(hotel.cleaning_fee) || 0;
-    const total = subtotal + taxAmount + serviceFee + cleaningFee;
+    const fullTotal = subtotal + taxAmount + serviceFee + cleaningFee;
+
+    // Loyalty redeem (LOYALTY_DEFINITION.md §2): quote di sini, spend dicatat
+    // dalam transaksi yang sama dengan pembuatan booking di bawah. Tanpa
+    // redeem_points → perilaku lama persis (total penuh).
+    let redeemPts = 0;
+    let redeemDiscount = 0;
+    if (req.body.redeem_points !== undefined) {
+      const qty = Number(req.body.redeem_points);
+      if (!Number.isInteger(qty)) {
+        return res.status(400).json({ success: false, message: 'redeem_points harus bilangan bulat' });
+      }
+      try {
+        const balance = await loyaltyService.getBalance(client, req.user.id);
+        const q = loyaltyService.quoteRedeem({ balance, redeemPoints: qty, subtotalUsd: subtotal });
+        redeemPts = q.redeemPoints;
+        redeemDiscount = q.discountUsd;
+      } catch (e) {
+        return res.status(e.status || 400).json({ success: false, message: e.message });
+      }
+    }
+    const total = Math.max(0, Math.round((fullTotal - redeemDiscount) * 100) / 100);
  
     // FIX audit KRITIS: sebelumnya TIDAK ADA pengecekan ini sama sekali —
     // dua user bisa membayar sukses untuk hotel & tanggal yang sama tanpa
@@ -472,9 +514,19 @@ const processPayment = async (req, res) => {
     const transactionId = 'TXN-' + Date.now();
  
     await client.query('BEGIN');
- 
+
+    // Spend poin redeem dalam transaksi yang sama dengan booking — gagal
+    // spend = seluruh pay gagal (tidak ada booking diskon tanpa bayar poin).
+    if (redeemPts > 0) {
+      await loyaltyService.spendPoints(client, req.user.id, redeemPts, 'redeem', {
+        referenceId: `redeem:${transactionId}`,
+        note: `Redeem ${redeemPts} poin (diskon $${redeemDiscount}) untuk booking ${bookingCode}`,
+      });
+    }
+
     // 1. Buat booking 'pending' (B1) — slot tanggal di-hold; baru jadi
     //    'confirmed' saat webhook sukses, 'cancelled' saat gagal/expired.
+    //    total_price = setelah diskon poin (bila redeem).
     const bookingResult = await client.query(`
       INSERT INTO bookings (booking_code, user_id, hotel_id, check_in, check_out, nights, guest_count, price_per_night, total_price, notes, status)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
@@ -508,10 +560,10 @@ const processPayment = async (req, res) => {
 
     // 3. Buat payment 'pending' + data Snap untuk resume.
     const paymentResult = await client.query(`
-      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status, snap_token, redirect_url, snap_expires_at, tax_amount, service_fee, cleaning_fee)
-      VALUES ($1,$2,$3,$4,$5,'USD','pending',$6,$7,$8,$9,$10,$11)
+      INSERT INTO payments (transaction_id, booking_id, user_id, method, amount, currency, status, snap_token, redirect_url, snap_expires_at, tax_amount, service_fee, cleaning_fee, redeemed_points)
+      VALUES ($1,$2,$3,$4,$5,'USD','pending',$6,$7,$8,$9,$10,$11,$12)
       RETURNING *
-    `, [transactionId, booking.id, req.user.id, paymentMethod, total, snapResult.token, snapResult.redirect_url, snapExpiresAt, taxAmount, serviceFee, cleaningFee]);
+    `, [transactionId, booking.id, req.user.id, paymentMethod, total, snapResult.token, snapResult.redirect_url, snapExpiresAt, taxAmount, serviceFee, cleaningFee, redeemPts]);
     const payment = paymentResult.rows[0];
 
     await client.query('COMMIT');
@@ -610,6 +662,25 @@ const handleMidtransWebhook = async (req, res) => {
         `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status IN ('pending','confirmed')`,
         [payment.booking_id]
       );
+      // Poin redeem kembali karena user tidak jadi menginap (idempotent —
+      // retry webhook tidak menggandakan, dan hanya bila sebelumnya pending).
+      const redeemed = Number(payment.redeemed_points) || 0;
+      if (redeemed > 0 && previousStatus !== 'failed') {
+        try {
+          await client.query(
+            `INSERT INTO loyalty_ledger (user_id, points, type, reference_id, note)
+             VALUES ($1, $2, 'recredit', $3, $4)
+             ON CONFLICT (reference_id) DO NOTHING`,
+            [payment.user_id, redeemed, `recredit:${orderId}`, `Poin kembali — pembayaran ${orderId} gagal/expired`]
+          );
+          await client.query(
+            `UPDATE loyalty_points SET points = points + $1, updated_at = NOW() WHERE user_id = $2`,
+            [redeemed, payment.user_id]
+          );
+        } catch (e) {
+          if (e.code !== '42P01') throw e;
+        }
+      }
     }
 
     // P4 vault: pembayaran kartu sukses + user centang "save card" di Snap →

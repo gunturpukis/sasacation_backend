@@ -1,28 +1,25 @@
 // src/controllers/loyaltyController.js
-// A6 (audit Figma: kartu "Travel Pass Premium / Sasacation Gold" + "Gold
-// Member • 12 Trips" di profil).
+// Loyalty (LOYALTY_DEFINITION.md, disetujui 04 Okt 2026): poin SAJA, bukan
+// e-money. Saldo dari loyalty_ledger via loyaltyService (SUM belum
+// kedaluwarsa); tier derivasi; trips_completed dari booking sukses.
 //
-// Tier dihitung DERIVASI (tidak ada tabel baru):
-//   - points: loyalty_points (1 poin per $1 top-up sukses, lihat P2)
-//   - tier: Bronze <100, Silver 100–499, Gold 500–1999, Platinum 2000+
-//   - trips_completed: booking confirmed/completed dengan payment sukses
-//   - pass_id: ID member stabil derivasi UUID (bukan nomor kartu bank —
-//     kartu fisik/virtual Travel Pass bukan artefact backend)
+// - GET  /api/loyalty         → pass + poin + tier + expiring + conversion
+// - POST /api/loyalty/transfer → { email, points, note? } (atomik, kelipatan 100)
+// - GET  /api/loyalty/ledger  → riwayat perolehan/pakai/kedaluwarsa
 
 const pool = require('../config/db');
+const loyalty = require('../services/loyaltyService');
 
-function tierFor(points) {
-  if (points >= 2000) return 'Platinum';
-  if (points >= 500) return 'Gold';
-  if (points >= 100) return 'Silver';
-  return 'Bronze';
+function passIdFor(userId) {
+  return `SC-${String(userId).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 }
 
 // GET /api/loyalty
 const getLoyalty = async (req, res) => {
   try {
-    const [{ rows: pRows }, { rows: tRows }, { rows: uRows }] = await Promise.all([
-      pool.query('SELECT points FROM loyalty_points WHERE user_id = $1', [req.user.id]),
+    const [points, expiring, tRows, uRows] = await Promise.all([
+      loyalty.getBalance(pool, req.user.id),
+      loyalty.getExpiringSoon(pool, req.user.id),
       pool.query(
         `SELECT COUNT(DISTINCT b.id) AS trips
          FROM bookings b
@@ -33,18 +30,16 @@ const getLoyalty = async (req, res) => {
       pool.query('SELECT created_at FROM users WHERE id = $1', [req.user.id]),
     ]);
 
-    const points = Number(pRows[0]?.points ?? 0);
-    const trips = Number(tRows[0]?.trips ?? 0);
-    const passId = `SC-${req.user.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
-
     res.json({
       success: true,
       data: {
-        pass_id: passId,
+        pass_id: passIdFor(req.user.id),
         points,
-        tier: tierFor(points),
-        trips_completed: trips,
-        member_since: uRows[0]?.created_at || null,
+        tier: loyalty.tierFor(points),
+        trips_completed: Number(tRows.rows[0]?.trips ?? 0),
+        member_since: uRows.rows[0]?.created_at || null,
+        points_expiring_soon: expiring,
+        conversion: loyalty.conversion(),
       },
     });
   } catch (e) {
@@ -53,4 +48,40 @@ const getLoyalty = async (req, res) => {
   }
 };
 
-module.exports = { getLoyalty, tierFor };
+// POST /api/loyalty/transfer — body { email, points, note? }
+const transferLoyalty = async (req, res) => {
+  try {
+    const { email, points, note } = req.body;
+    if (!email || points === undefined)
+      return res.status(400).json({ success: false, message: 'email dan points wajib diisi' });
+    const pts = Number(points);
+    if (!Number.isInteger(pts))
+      return res.status(400).json({ success: false, message: 'points harus bilangan bulat' });
+    const result = await loyalty.transferPoints(pool, req.user.id, email, pts, note || null);
+    const balance = await loyalty.getBalance(pool, req.user.id);
+    res.json({ success: true, message: `Transfer ${pts} poin berhasil`, data: { ...result, balance } });
+  } catch (e) {
+    const status = e.status || 500;
+    if (status !== 500) return res.status(status).json({ success: false, message: e.message });
+    console.error('[loyalty transfer] error:', e.message);
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+// GET /api/loyalty/ledger?limit=
+const getLedger = async (req, res) => {
+  try {
+    const entries = await loyalty.listLedger(pool, req.user.id, req.query.limit);
+    res.json({ success: true, data: entries });
+  } catch (e) {
+    if (e.code === '42P01')
+      return res.status(500).json({
+        success: false,
+        message: 'Tabel loyalty_ledger belum dimigrasi. Jalankan npm run db:migrate:loyalty-ledger',
+      });
+    console.error('[loyalty ledger] error:', e.message);
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+module.exports = { getLoyalty, transferLoyalty, getLedger, tierFor: loyalty.tierFor };

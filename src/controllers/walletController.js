@@ -250,13 +250,25 @@ const handleWalletWebhook = async (req, res) => {
         [newBalance, JSON.stringify(req.body), tx.id]
       );
 
-      // Poin loyalitas: 1 poin per $1 (floor).
+      // Poin loyalitas: 1 poin per $1 (floor). Dual-write: kolom legasi
+      // (kompatibilitas + money.test) + ledger (sumber kebenaran baru).
+      // Idempotent via reference topup:<orderId> — retry webhook aman.
       const earned = Math.floor(Number(tx.amount_cents) / 100) * POINTS_PER_USD;
       if (earned > 0) {
         await client.query(
           `UPDATE loyalty_points SET points = points + $1, updated_at = NOW() WHERE user_id = $2`,
           [earned, tx.user_id]
         );
+        try {
+          await client.query(
+            `INSERT INTO loyalty_ledger (user_id, points, type, reference_id, note, expires_at)
+             VALUES ($1, $2, 'earn_topup', $3, $4, NOW() + INTERVAL '12 months')
+             ON CONFLICT (reference_id) DO NOTHING`,
+            [tx.user_id, earned, `topup:${orderId}`, `Top-up wallet $${Number(tx.amount_cents) / 100}`]
+          );
+        } catch (e) {
+          if (e.code !== '42P01') throw e; // tabel belum dimigrasi → legasi saja
+        }
       }
       console.log(`[wallet webhook] order_id=${orderId} -> success (+${tx.amount_cents}c, +${earned}pts)`);
     } else if (newStatus === 'failed') {
