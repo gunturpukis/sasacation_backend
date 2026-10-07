@@ -163,6 +163,85 @@ function expiryDate(months = EXPIRY_MONTHS) {
   return d.toISOString();
 }
 
+// 1 poin per Rp10.000 dari total_price (LOYALTY_DEFINITION.md §1),
+// dibulatkan ke bawah. total_price tersimpan USD → konversi via kurs.
+// Murni (DB-free, diuji di tests/loyalty.test.js).
+function bookingPointsFor(totalUsd, rate = usdToIdrRate()) {
+  const total = Number(totalUsd);
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  return Math.floor((total * rate) / 10000);
+}
+
+// Tutup booking yang sudah lewat check-out: confirmed + payment success +
+// check_out < sekarang → completed + earn_booking. Idempotent (reference
+// `booking:<id>` + syarat status), aman dipanggil berulang/cron.
+// - db: pool atau client. userId null = semua user (admin/cron), else miliknya.
+// - Mengembalikan [{ bookingId, points }] yang berhasil ditutup.
+async function closePastBookings(dbOrPool, userId = null) {
+  const owned = dbOrPool === pool;
+  const db = owned ? await pool.connect() : dbOrPool;
+  const closed = [];
+  try {
+    if (owned) await db.query('BEGIN');
+    const params = [];
+    let userFilter = '';
+    if (userId) {
+      params.push(userId);
+      userFilter = `AND b.user_id = $${params.length}`;
+    }
+    const { rows } = await db.query(
+      `SELECT b.id, b.user_id, b.total_price
+       FROM bookings b
+       WHERE b.status = 'confirmed'
+         AND b.check_out < NOW()
+         AND EXISTS (SELECT 1 FROM payments p WHERE p.booking_id = b.id AND p.status = 'success')
+         AND NOT EXISTS (
+           SELECT 1 FROM loyalty_ledger l
+           WHERE l.reference_id = 'booking:' || b.id::text
+         )
+         ${userFilter}
+       ORDER BY b.check_out ASC
+       LIMIT 500`,
+      params
+    );
+    for (const b of rows) {
+      const pts = bookingPointsFor(b.total_price);
+      await db.query(`UPDATE bookings SET status = 'completed', updated_at = NOW() WHERE id = $1`, [b.id]);
+      if (pts > 0) {
+        await db.query(
+          `INSERT INTO loyalty_ledger (user_id, points, type, reference_id, note, expires_at)
+           VALUES ($1, $2, 'earn_booking', $3, $4, NOW() + INTERVAL '12 months')
+           ON CONFLICT (reference_id) DO NOTHING`,
+          [b.user_id, pts, `booking:${b.id}`, `Trip selesai — booking ${b.id}`]
+        );
+        await bumpLegacy(db, b.user_id, pts);
+      }
+      closed.push({ bookingId: b.id, points: pts });
+    }
+    if (owned) await db.query('COMMIT');
+  } catch (e) {
+    if (owned) await db.query('ROLLBACK');
+    if (!isLedgerMissing(e)) throw e;
+    // DB lama tanpa ledger: tetap tandai completed agar status jujur,
+    // poin menyusul setelah migrasi (tidak ada yang hilang — close
+    // berikutnya memberi earn karena reference belum ada).
+    if (owned) {
+      await db.query(
+        `UPDATE bookings SET status = 'completed', updated_at = NOW()
+         WHERE status = 'confirmed' AND check_out < NOW()
+           AND EXISTS (SELECT 1 FROM payments p WHERE p.booking_id = bookings.id AND p.status = 'success')
+           ${userId ? 'AND user_id = $1' : ''}`,
+        userId ? [userId] : []
+      );
+      return [];
+    }
+    throw e;
+  } finally {
+    if (owned) db.release();
+  }
+  return closed;
+}
+
 async function addEarn(db, userId, points, type, { referenceId = null, note = null, expiresAt = null } = {}) {
   if (!Number.isInteger(points) || points <= 0) fail(400, 'poin earn harus bilangan positif');
   const exp = expiresAt === null && type.startsWith('earn_') ? expiryDate() : expiresAt;
@@ -254,6 +333,7 @@ module.exports = {
   WELCOME_POINTS, REVIEW_POINTS, MIN_REDEEM, MAX_PCT, EXPIRY_MONTHS, EXPIRING_SOON_DAYS,
   usdToIdrRate, tierFor, discountUsdFor, conversion,
   validateRedeemQty, quoteRedeem,
+  bookingPointsFor, closePastBookings,
   legacyPoints, getBalance, getExpiringSoon,
   addEarn, awardWelcome, spendPoints, transferPoints, listLedger,
 };

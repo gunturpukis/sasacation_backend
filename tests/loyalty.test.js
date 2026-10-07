@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 
 const {
   tierFor, discountUsdFor, conversion,
-  validateRedeemQty, quoteRedeem, MIN_REDEEM,
+  validateRedeemQty, quoteRedeem, bookingPointsFor, MIN_REDEEM,
 } = require('../src/services/loyaltyService');
 
 const RATE = 16000;
@@ -79,5 +79,16 @@ describe('quoteRedeem', () => {
       () => quoteRedeem({ balance: 1000, redeemPoints: 100, subtotalUsd: 0.5, rate: RATE }),
       /terlalu kecil/
     );
+  });
+});
+
+describe('bookingPointsFor (1 poin per Rp10.000)', () => {
+  it('$357 @16000 → 571 poin', () => {
+    assert.equal(bookingPointsFor(357, RATE), 571);
+  });
+  it('dibulatkan ke bawah, nol/negatif → 0', () => {
+    assert.equal(bookingPointsFor(0.5, RATE), 0);
+    assert.equal(bookingPointsFor(0, RATE), 0);
+    assert.equal(bookingPointsFor(-10, RATE), 0);
   });
 });

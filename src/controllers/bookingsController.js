@@ -1,8 +1,16 @@
 const pool = require('../config/db');
+const loyaltyService = require('../services/loyaltyService');
 
-// GET /api/bookings/my — booking milik user yang login, JOIN dengan hotel
+// GET /api/bookings/my — booking milik user yang login, JOIN dengan hotel.
+// Auto-close fail-soft: trip yang sudah lewat check-out langsung tampil
+// 'completed' (beserta poinnya) tanpa menunggu cron.
 const getMyBookings = async (req, res) => {
   try {
+    try {
+      await loyaltyService.closePastBookings(pool, req.user.id);
+    } catch (e) {
+      console.error('[bookings] auto-close gagal (diabaikan):', e.message);
+    }
     const { rows } = await pool.query(`
       SELECT
         b.*,
@@ -61,6 +69,8 @@ const cancelBooking = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Akses ditolak' });
     if (booking.status === 'cancelled')
       return res.status(400).json({ success: false, message: 'Booking sudah dibatalkan' });
+    if (booking.status === 'completed')
+      return res.status(400).json({ success: false, message: 'Trip sudah selesai — tidak bisa dibatalkan' });
 
     const updated = await pool.query(
       `UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1 RETURNING *`,
@@ -187,4 +197,23 @@ const rescheduleBooking = async (req, res) => {
   }
 };
 
-module.exports = { getMyBookings, getBookingById, cancelBooking, getAllBookings, rescheduleBooking };
+// POST /api/bookings/close-past — tutup trip yang sudah lewat check-out.
+// User biasa: hanya miliknya. Admin: seluruhnya (untuk cron).
+// Idempotent: panggil lagi → closed [].
+const closePastBookings = async (req, res) => {
+  try {
+    const scope = req.user.role === 'admin' ? null : req.user.id;
+    const closed = await loyaltyService.closePastBookings(pool, scope);
+    const earned = closed.reduce((s, c) => s + c.points, 0);
+    res.json({
+      success: true,
+      message: closed.length ? `${closed.length} trip selesai, +${earned} poin` : 'Tidak ada trip yang perlu ditutup',
+      data: { closed, earned_points: earned },
+    });
+  } catch (e) {
+    console.error('[bookings close-past] error:', e.message);
+    res.status(500).json({ success: false, message: 'Server error', error: e.message });
+  }
+};
+
+module.exports = { getMyBookings, getBookingById, cancelBooking, getAllBookings, rescheduleBooking, closePastBookings };
