@@ -14,13 +14,13 @@ cp .env.example .env            # lalu isi: DATABASE_URL, JWT_SECRET,
 npm run db:init                 # skema (sudah mencakup semua tabel baru)
 npm run db:seed                 # hotel, destinasi, resto, reviews, flag lokal
 npm run rag:index                # embedding (butuh Ollama + nomic-embed-text)
-npm test                        # 12 integration test alur uang (wajib hijau)
+npm test                        # 56 test / 5 file hijau (12 integration alur uang + 44 unit)
 npm run dev                     # port 5001
 ```
 
 DB lama (sudah ada isinya): jalankan semua `npm run db:migrate:*` satu per satu
 (reviews, wallet, impact, payment-methods, preference-styles, booking-pending,
-b4, itineraries, polls, groups, a6, tasks, invoice-snapshot) — semua idempotent.
+b4, itineraries, itinerary-image, polls, groups, a6, tasks, invoice-snapshot) — semua idempotent.
 
 ## 2. Scope yang diserahkan (16 item, semua terverifikasi live)
 
@@ -57,6 +57,20 @@ allowlist rute notifikasi 9 buah, secrets git-ignored.
    `payment_methods`, `impact_summary`, `itinerary_detail`, `poll_detail`,
    `group_detail`, `task_detail`.
 
+## 3b. Perubahan kontrak: `image` (trip planner + itinerary + compare)
+
+- **Trip plan (AI)** — `POST /api/ai/trip-plan` dan kartu `tripPlan` di chat
+  (`POST /api/ai/chat`, `GET /chat/sessions/latest`): setiap activity kini
+  punya **`image` (string URL | null)** — grounded dari DB (hotel/destinasi/
+  restoran), bukan karangan LLM. Backward compatible (field baru, nullable).
+- **Itinerary tersimpan** — `POST /api/itineraries` (`items[].image`) dan
+  `POST /api/itineraries/:id/items` (`image`) menerima image; `PATCH
+  /api/itineraries/items/:itemId` menerima `image` (kirim `null` untuk clear).
+  Semua response item menyertakan `image`. Butuh DB segar (`db:init`) atau
+  `npm run db:migrate:itinerary-image` untuk DB lama.
+- **Compare** — `POST /api/ai/compare`: tiap row `matrix` kini menyertakan
+  **`image`** hotel untuk ditampilkan di kartu perbandingan.
+
 ## 4. Bukti double-check pra-serah (tanggal tulis file ini)
 
 - `node --check` seluruh file JS: **lolos semua**; `package.json` valid.
@@ -64,7 +78,10 @@ allowlist rute notifikasi 9 buah, secrets git-ignored.
 - Smoke test 21 endpoint baru/berubah: **21 OK / 0 FAIL**.
 - `npm test` (tests/money.test.js): **12 pass / 0 fail** (port uji 5123,
   user temporer auto-cleanup, tanpa sentuh data dev).
-- Isi `FLUTTER_HANDOFF.md` dicocokkan ke kode: path, field, allowlist, 16 skrip
+- Hitung ulang `npm test` penuh (19 Okt 2026): **56 test / 5 file — 56 pass,
+  0 fail** (12 integration alur uang + 44 unit/feature). Angka inilah yang
+  dipakai di `FLUTTER_HANDOFF.md` bagian verifikasi.
+- Isi `FLUTTER_HANDOFF.md` dicocokkan ke kode: path, field, allowlist, 26 skrip
   migrasi — **akurat**.
 - Kebersihan: tanpa server nyasar, tanpa user/data uji tersisa.
 - Bug yang ditemukan & diperbaiki selama verifikasi: invoice fee negatif

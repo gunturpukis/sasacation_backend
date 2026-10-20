@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 const { parseSearchFilters } = require('../src/services/searchFilterService');
 const { extractAspects, PROS_KEYWORDS, CONS_KEYWORDS, buildPersonalizedLine } = require('../src/services/reviewSummaryService');
 const { buildRow, buildTradeoffs, fallbackVerdict } = require('../src/services/compareService');
-const { resolveStartDate, stampPlanDates, validatePlanBudget } = require('../src/services/agentOrchestratorService');
+const { resolveStartDate, stampPlanDates, validatePlanBudget, stampPlanImages } = require('../src/services/agentOrchestratorService');
 
 describe('F.1 parseSearchFilters (20-query core)', () => {
   const cases = [
@@ -97,5 +97,54 @@ describe('F.5 planner date/budget guard', () => {
     assert.deepEqual(plan.days.map((d) => d.date), ['2026-12-01', '2026-12-02']);
     validatePlanBudget(plan);
     assert.equal(plan.totalEstimatedCost, 200);
+  });
+});
+
+describe('Image enrichment stampPlanImages (grounded, tanpa LLM)', () => {
+  const candidates = () => ({
+    hotelCandidates: [{ id: 'h1', name: 'Hotel Senggigi', location: 'Senggigi', image: 'https://img/hotel.jpg' }],
+    restaurantCandidates: [{ id: 'r1', name: 'Seafood Asri', location: 'Senggigi', image: 'https://img/resto.jpg' }],
+    activityCandidates: [
+      { id: 'd1', name: 'Gili Trawangan', location: 'Gili', image: 'https://img/gili.jpg' },
+      { id: 'd2', name: 'Pantai Tanjung Aan', location: 'Tanjung Aan', image: 'https://img/tanjung.jpg' },
+    ],
+  });
+
+  it('itemId cocok → image kandidat (tanpa LLM/URL karangan)', () => {
+    const plan = { days: [{ activities: [
+      { name: 'Hotel Senggigi', itemId: 'h1' },
+      { name: 'Seafood Asri', itemId: 'r1' },
+      { name: 'Gili Trawangan', itemId: 'd1' },
+    ] }] };
+    stampPlanImages(plan, candidates());
+    assert.deepEqual(plan.days[0].activities.map((a) => a.image),
+      ['https://img/hotel.jpg', 'https://img/resto.jpg', 'https://img/gili.jpg']);
+  });
+
+  it('transport tanpa itemId → image destinasi terkait via lokasi', () => {
+    const plan = { days: [{ activities: [
+      { name: 'Menuju Gili Trawangan', location: 'Gili', itemId: null, type: 'transport' },
+    ] }] };
+    stampPlanImages(plan, candidates());
+    assert.equal(plan.days[0].activities[0].image, 'https://img/gili.jpg');
+  });
+
+  it('tanpa kecocokan → image aktivitas terdekat hari sama; hari lain tetap', () => {
+    const plan = { days: [
+      { activities: [
+        { name: 'Snorkeling', itemId: 'd1' },
+        { name: 'Antar jemput', location: 'Bandara Lombok', itemId: null },
+      ] },
+      { activities: [{ name: 'Hari sepi', location: 'Tempat entah', itemId: null }] },
+    ] };
+    stampPlanImages(plan, candidates());
+    assert.equal(plan.days[0].activities[1].image, 'https://img/gili.jpg'); // tetangga terdekat
+    assert.equal(plan.days[1].activities[0].image, null); // tanpa image sama sekali → null
+  });
+
+  it('id tak dikenal (halusinasi LLM) → jangan beri image salah sasaran', () => {
+    const plan = { days: [{ activities: [{ name: 'Tempat Misterius', location: 'Belum Ada', itemId: 'nonexistent' }] }] };
+    stampPlanImages(plan, candidates());
+    assert.equal(plan.days[0].activities[0].image, null);
   });
 });

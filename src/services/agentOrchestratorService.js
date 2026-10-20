@@ -63,6 +63,10 @@ async function runTripPlanningAgents({ duration, budget, interests, startDate, g
   stampPlanDates(plan, resolvedStart);
   validatePlanBudget(plan);
 
+  // Image: disuntik deterministik dari metadata kandidat (BUKAN dari LLM —
+  // URL tidak pernah disodorkan ke prompt, cegah halusinasi URL gambar).
+  stampPlanImages(plan, { hotelCandidates, restaurantCandidates, activityCandidates });
+
   return {
     ...plan,
     agentTrace: {
@@ -115,6 +119,58 @@ function validatePlanBudget(plan) {
   }
 }
 
+// ── Image enrichment (grounded, anti-halusinasi) ───────────────────────────
+// Sumber image: metadata kandidat hasil RAG (berasal dari kolom
+// hotels/destinations/restaurants.image). Urutan resolusi per activity:
+//   1. itemId cocok → image kandidat tsb (hotel/restoran/destinasi).
+//   2. Tanpa itemId (transport/aktivitas umum) → cocokkan location/name
+//      activity ke kandidat destinasi → image "destinasi terkait".
+//   3. Belum cocok → image aktivitas ber-image terdekat pada hari yang sama.
+//   4. Tetap kosong → null (bukan URL karangan).
+function stampPlanImages(plan, { hotelCandidates = [], restaurantCandidates = [], activityCandidates = [] }) {
+  if (!plan || !Array.isArray(plan.days)) return plan;
+
+  const byId = new Map();
+  for (const c of [...hotelCandidates, ...restaurantCandidates, ...activityCandidates]) {
+    if (c?.id != null && c.image) byId.set(String(c.id), c.image);
+  }
+  const dests = activityCandidates.filter(c => c?.image);
+
+  const norm = (s) => String(s || '').toLowerCase().trim();
+  const matchDest = (activity) => {
+    const loc = norm(activity.location);
+    const name = norm(activity.name);
+    if (!loc && !name) return null;
+    for (const d of dests) {
+      const dLoc = norm(d.location);
+      const dName = norm(d.name);
+      if (loc && dLoc && (loc.includes(dLoc) || dLoc.includes(loc))) return d.image;
+      if (name && dName && (name.includes(dName) || dName.includes(name))) return d.image;
+    }
+    return null;
+  };
+
+  for (const day of plan.days) {
+    const activities = Array.isArray(day.activities) ? day.activities : [];
+    for (const a of activities) {
+      if (a.itemId != null && byId.has(String(a.itemId))) {
+        a.image = byId.get(String(a.itemId));
+        continue;
+      }
+      a.image = matchDest(a);
+    }
+    // Fallback: image aktivitas terdekat pada hari yang sama.
+    for (let i = 0; i < activities.length; i++) {
+      if (activities[i].image) continue;
+      const prev = [...activities.slice(0, i)].reverse().find(x => x.image);
+      const next = activities.slice(i + 1).find(x => x.image);
+      const near = prev || next;
+      if (near) activities[i].image = near.image;
+    }
+  }
+  return plan;
+}
+
 // Ambil daftar dislikes dari blok teks userContext (format sudah pasti dari
 // userContextService.js: baris "Tidak suka: a, b, c"). Sengaja parsing teks
 // alih-alih query ulang ke DB, supaya satu sumber kebenaran (userContextService)
@@ -126,4 +182,4 @@ function extractDislikesFromContext(userContext) {
   return line.replace('Tidak suka:', '').split(',').map(s => s.trim()).filter(Boolean);
 }
 
-module.exports = { runTripPlanningAgents, resolveStartDate, stampPlanDates, validatePlanBudget };
+module.exports = { runTripPlanningAgents, resolveStartDate, stampPlanDates, validatePlanBudget, stampPlanImages };

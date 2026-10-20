@@ -145,8 +145,6 @@
   dan tidak terlacak — jangan pernah commit; `WEATHER_API_KEY` hanya di `.env`.
 
 ## Item BLOCKED (jangan dibuat UI-nya dulu / sembunyikan)
-- **B1 Cuaca** ("Weather Update: Bali", badai Ubud): butuh API key cuaca
-  (mis. OpenWeather) di `WEATHER_API_KEY` — belum ada. Backend belum bangun.
 - **B2 Penerbangan real-time** (status/ketersediaan kursi maskapai): butuh integrasi
   GDS — belum ada. Task penerbangan saat ini data manual via `POST /api/tasks`.
 - **B3 Bills/Tagihan pihak ketiga** di wallet: belum ada.
@@ -156,5 +154,7 @@
    `curl -X POST localhost:5001/api/auth/login -d '{"email":"budi@example.com","password":"admin123"}'`.
 2. Panggil endpoint item, cocokkan JSON dengan kontrak di atas.
 3. UI langsung bisa render — tidak perlu perubahan backend lagi untuk F1–F16.
-4. Alur uang terproteksi `npm test` (12 integration test hijau:
-   checkout, webhook, wallet, transfer, refund guards, invoice).
+4. Alur uang terproteksi `npm test` (**56 test di 5 file**, semua hijau —
+   12 integration test alur uang: checkout, webhook, wallet, transfer,
+   refund guards, invoice — + 44 unit/feature test: loyalty, AI features,
+   reviews, close-past). Terverifikasi ulang dengan `npm test` (56 pass / 0 fail).

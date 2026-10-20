@@ -59,6 +59,7 @@ function buildRow(hotel, summary) {
     price: Number(hotel.price),
     locationScore, roomScore, breakfast, pool, coupleFit, value,
     rating,
+    image: hotel.image || null,
   };
 }
 
@@ -92,7 +93,7 @@ async function compareHotels(hotelIds, userId) {
     throw Object.assign(new Error('Bandingkan minimal 2 hotel (maksimal 3).'), { status: 400 });
 
   const { rows: hotels } = await pool.query(
-    'SELECT id, name, location, price, rating, amenities FROM hotels WHERE id = ANY($1::uuid[])',
+    'SELECT id, name, location, price, rating, amenities, image FROM hotels WHERE id = ANY($1::uuid[])',
     [unique]
   );
   if (hotels.length < 2)
@@ -121,7 +122,9 @@ async function compareHotels(hotelIds, userId) {
   let verdict;
   try {
     const system = 'Kamu adalah asisten travel Sasacation. Berikan rekomendasi hotel 2-3 kalimat dalam Bahasa Indonesia, HANYA berdasarkan matriks JSON berikut. Jangan mengarang angka di luar matriks.';
-    const user = `Matriks:\n${JSON.stringify(matrix)}\nTrade-offs:\n${tradeoffs.join('\n')}` +
+    // image tidak dikirim ke LLM — boros konteks dan tidak relevan untuk verdict.
+    const matrixForLlm = matrix.map(({ image, ...rest }) => rest);
+    const user = `Matriks:\n${JSON.stringify(matrixForLlm)}\nTrade-offs:\n${tradeoffs.join('\n')}` +
       (profile ? `\nProfil user: ${JSON.stringify({ tripTypes: profile.preferred_group_type, styles: profile.styles, interests: profile.interests })}` : '') +
       '\nHotel mana yang paling direkomendasikan dan kenapa?';
     verdict = (await ollamaChat(system, user)).trim();

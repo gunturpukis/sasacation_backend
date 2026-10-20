@@ -1,6 +1,6 @@
 {
   "name": "sasacation-backend-rag",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Sasacation API — pgvector + RAG + Ollama",
   "main": "src/index.js",
   "scripts": {
@@ -25,6 +25,7 @@
     "db:migrate:booking-pending": "node src/config/migrateBookingPending.js",
     "db:migrate:b4": "node src/config/migrateB4.js",
     "db:migrate:itineraries": "node src/config/migrateItineraries.js",
+    "db:migrate:itinerary-image": "node src/config/migrateItineraryImage.js",
     "db:migrate:polls": "node src/config/migratePolls.js",
     "db:migrate:groups": "node src/config/migrateGroups.js",
     "db:migrate:a6": "node src/config/migrateA6.js",

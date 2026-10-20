@@ -13,8 +13,9 @@
 //   kelipatan 100. Kedaluwarsa 12 bulan.
 // - Tier: Bronze <100, Silver 100+, Gold 500+, Platinum 2000+.
 //
-// HOOK DITUNDA (jujur, bukan diam): earn_review (belum ada POST /reviews)
-// dan earn_booking (belum ada transisi completed) — lihat migrateLoyaltyLedger.js.
+// earn_review (POST /api/hotels/:id/reviews) dan earn_booking
+// (closePastBookings / transisi completed) SUDAH aktif — lihat
+// hotelsController.createHotelReview & bookingsController.closePastBookings.
 
 const pool = require('../config/db');
 

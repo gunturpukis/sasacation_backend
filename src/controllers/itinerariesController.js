@@ -9,6 +9,16 @@ const pool = require('../config/db');
 const STATUSES = ['draft', 'active', 'completed', 'cancelled'];
 const KINDS = ['activity', 'meal', 'rest', 'transport', 'stay'];
 
+// image: URL string dari trip plan (grounded dari DB) atau null. Validasi
+// ringan saja — bukan field tebus/berbayar, cukup jaga tipe & panjang.
+function cleanImage(v) {
+  if (v == null) return null;
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  if (!s || s.length > 2048) return null;
+  return s;
+}
+
 async function ownItinerary(id, userId) {
   const { rows } = await pool.query(
     'SELECT * FROM itineraries WHERE id = $1 AND user_id = $2',
@@ -56,10 +66,11 @@ const createItinerary = async (req, res) => {
         return res.status(400).json({ success: false, message: `items[${i}].kind harus salah satu: ${KINDS.join(', ')}` });
       }
       const { rows: ir } = await client.query(
-        `INSERT INTO itinerary_items (itinerary_id, day, time, title, description, location, kind, position)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        `INSERT INTO itinerary_items (itinerary_id, day, time, title, description, location, kind, position, image)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
         [rows[0].id, Number(it.day) >= 1 ? Number(it.day) : 1, it.time || null,
-         String(it.title), it.description || null, it.location || null, it.kind || 'activity', i]
+         String(it.title), it.description || null, it.location || null, it.kind || 'activity', i,
+         cleanImage(it.image)]
       );
       created.push(ir[0]);
     }
@@ -67,6 +78,8 @@ const createItinerary = async (req, res) => {
     res.status(201).json({ success: true, data: { ...rows[0], items: created } });
   } catch (e) {
     await client.query('ROLLBACK');
+    if (e.code === '42703')
+      return res.status(500).json({ success: false, message: 'Kolom image belum dimigrasi. Jalankan npm run db:migrate:itinerary-image' });
     res.status(500).json({ success: false, message: 'Server error', error: e.message });
   } finally {
     client.release();
@@ -144,7 +157,7 @@ const addItem = async (req, res) => {
   try {
     const it = await ownItinerary(req.params.id, req.user.id);
     if (!it) return res.status(404).json({ success: false, message: 'Itinerary tidak ditemukan' });
-    const { day = 1, time, title, description, location, kind = 'activity' } = req.body;
+    const { day = 1, time, title, description, location, kind = 'activity', image } = req.body;
     if (!title || !String(title).trim())
       return res.status(400).json({ success: false, message: 'title wajib diisi' });
     if (!KINDS.includes(kind))
@@ -154,14 +167,16 @@ const addItem = async (req, res) => {
       [it.id, Number(day) >= 1 ? Number(day) : 1]
     );
     const { rows } = await pool.query(
-      `INSERT INTO itinerary_items (itinerary_id, day, time, title, description, location, kind, position)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO itinerary_items (itinerary_id, day, time, title, description, location, kind, position, image)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [it.id, Number(day) >= 1 ? Number(day) : 1, time || null, String(title).trim(),
-       description || null, location || null, kind, Number(pos[0].next)]
+       description || null, location || null, kind, Number(pos[0].next), cleanImage(image)]
     );
     await pool.query('UPDATE itineraries SET updated_at = NOW() WHERE id = $1', [it.id]);
     res.status(201).json({ success: true, data: rows[0] });
   } catch (e) {
+    if (e.code === '42703')
+      return res.status(500).json({ success: false, message: 'Kolom image belum dimigrasi. Jalankan npm run db:migrate:itinerary-image' });
     res.status(500).json({ success: false, message: 'Server error', error: e.message });
   }
 };
@@ -175,22 +190,28 @@ const updateItem = async (req, res) => {
       [req.params.itemId, req.user.id]
     );
     if (found.length === 0) return res.status(404).json({ success: false, message: 'Item tidak ditemukan' });
-    const { day, time, title, description, location, kind, position } = req.body;
+    const { day, time, title, description, location, kind, position, image } = req.body;
     if (kind !== undefined && !KINDS.includes(kind))
       return res.status(400).json({ success: false, message: `kind harus salah satu: ${KINDS.join(', ')}` });
     if (title !== undefined && !String(title).trim())
       return res.status(400).json({ success: false, message: 'title tidak boleh kosong' });
+    // `image` di body (bisa null untuk clear) → set eksplisit; absen → dipertahankan.
+    const patchImage = 'image' in req.body;
     const { rows } = await pool.query(
       `UPDATE itinerary_items SET
          day = COALESCE($1, day), time = COALESCE($2, time), title = COALESCE($3, title),
          description = COALESCE($4, description), location = COALESCE($5, location),
-         kind = COALESCE($6, kind), position = COALESCE($7, position)
-       WHERE id = $8 RETURNING *`,
+         kind = COALESCE($6, kind), position = COALESCE($7, position),
+         image = CASE WHEN $8::boolean THEN $9 ELSE image END
+       WHERE id = $10 RETURNING *`,
       [day ?? null, time ?? null, title?.trim() ?? null, description ?? null,
-       location ?? null, kind ?? null, position ?? null, found[0].id]
+       location ?? null, kind ?? null, position ?? null,
+       patchImage, patchImage ? cleanImage(image) : null, found[0].id]
     );
     res.json({ success: true, data: rows[0] });
   } catch (e) {
+    if (e.code === '42703')
+      return res.status(500).json({ success: false, message: 'Kolom image belum dimigrasi. Jalankan npm run db:migrate:itinerary-image' });
     res.status(500).json({ success: false, message: 'Server error', error: e.message });
   }
 };

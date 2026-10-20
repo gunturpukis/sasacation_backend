@@ -439,6 +439,7 @@ async function initDB() {
         kind         TEXT NOT NULL DEFAULT 'activity'
                      CHECK (kind IN ('activity','meal','rest','transport','stay')),
         position     INT  NOT NULL DEFAULT 0,
+        image        TEXT,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
